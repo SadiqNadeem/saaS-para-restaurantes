@@ -11,6 +11,7 @@ type GetRestaurantSlugResult = {
 };
 
 const RESERVED_SUBDOMAINS = new Set(["www", "app", "admin"]);
+const PLATFORM_HOSTS = ["netlify.app", "vercel.app"];
 
 function isIpv4Hostname(hostname: string): boolean {
   return /^\d{1,3}(\.\d{1,3}){3}$/.test(hostname);
@@ -30,6 +31,10 @@ function extractSlugFromHostname(hostname: string): string | null {
   const host = hostname.trim().toLowerCase();
 
   if (!host || host === "localhost" || isIpv4Hostname(host)) {
+    return null;
+  }
+
+  if (PLATFORM_HOSTS.some((platformHost) => host.endsWith(`.${platformHost}`))) {
     return null;
   }
 
