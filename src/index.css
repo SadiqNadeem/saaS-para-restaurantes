@@ -1,0 +1,421 @@
+html,
+body,
+#root {
+  width: 100%;
+  max-width: 100%;
+}
+
+/* ─── Design tokens ─────────────────────────────────────────── */
+:root {
+  /* Brand */
+  --brand-primary: #4ec580;
+  --brand-hover: #2e8b57;
+  --brand-white: #ffffff;
+  --brand-primary-soft: rgba(78, 197, 128, 0.14);
+  --brand-primary-border: rgba(78, 197, 128, 0.45);
+
+  /* Admin layout */
+  --admin-content-bg: #f8fafc;
+  --admin-card-bg: #ffffff;
+  --admin-card-border: #e5e7eb;
+  --admin-card-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+  --admin-radius-sm: 8px;
+  --admin-radius-md: 12px;
+  --admin-radius-lg: 16px;
+
+  /* Admin typography */
+  --admin-text-primary: #111827;
+  --admin-text-secondary: #6b7280;
+  --admin-text-muted: #9ca3af;
+
+  /* Status chip tokens */
+  --status-pending-bg: #fef3c7;
+  --status-pending-color: #92400e;
+  --status-accepted-bg: #dbeafe;
+  --status-accepted-color: #1e40af;
+  --status-preparing-bg: #ffedd5;
+  --status-preparing-color: #9a3412;
+  --status-ready-bg: #ede9fe;
+  --status-ready-color: #5b21b6;
+  --status-out-for-delivery-bg: #e0e7ff;
+  --status-out-for-delivery-color: #3730a3;
+  --status-delivered-bg: #dcfce7;
+  --status-delivered-color: #14532d;
+  --status-cancelled-bg: #fee2e2;
+  --status-cancelled-color: #7f1d1d;
+
+  /* Base typography */
+  font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+
+  color: #213547;
+  background-color: var(--brand-white);
+
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ─── Links ─────────────────────────────────────────────────── */
+a {
+  font-weight: 500;
+  color: var(--brand-primary);
+  text-decoration: inherit;
+}
+a:hover {
+  color: var(--brand-hover);
+}
+
+/* ─── Body ──────────────────────────────────────────────────── */
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* ─── Headings ──────────────────────────────────────────────── */
+h1 {
+  font-size: 2.4em;
+  line-height: 1.15;
+}
+
+/* Scope brand color to storefront only; admin uses inline styles */
+h1,
+h2,
+h3 {
+  color: var(--brand-primary);
+}
+
+/* Admin panels override heading color to neutral */
+.admin-panel h1,
+.admin-panel h2,
+.admin-panel h3 {
+  color: var(--admin-text-primary);
+}
+
+/* ─── Buttons ───────────────────────────────────────────────── */
+button {
+  border-radius: var(--admin-radius-sm);
+  border: 1px solid var(--brand-primary);
+  padding: 0.55em 1.1em;
+  font-size: 1em;
+  font-weight: 600;
+  font-family: inherit;
+  background-color: var(--brand-primary);
+  color: var(--brand-white);
+  cursor: pointer;
+  transition: background-color 0.18s ease, border-color 0.18s ease, color 0.18s ease;
+}
+button:hover {
+  border-color: var(--brand-hover);
+  background-color: var(--brand-hover);
+}
+button:focus-visible {
+  outline: 3px solid var(--brand-primary-border);
+  outline-offset: 2px;
+}
+button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* ─── Form controls ─────────────────────────────────────────── */
+input,
+select,
+textarea {
+  font-family: inherit;
+  font-size: 1em;
+}
+
+input[type="checkbox"],
+input[type="radio"] {
+  accent-color: var(--brand-primary);
+}
+
+/* ─── Admin utility: Card ───────────────────────────────────── */
+.admin-card {
+  background: var(--admin-card-bg);
+  border: 1px solid var(--admin-card-border);
+  border-radius: var(--admin-radius-md);
+  box-shadow: var(--admin-card-shadow);
+  padding: 16px;
+}
+
+/* ─── Admin utility: Table ──────────────────────────────────── */
+.admin-table-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.admin-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.admin-table th {
+  text-align: left;
+  padding: 10px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--admin-text-secondary);
+  background: #f9fafb;
+  border-bottom: 1px solid var(--admin-card-border);
+  white-space: nowrap;
+}
+
+.admin-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid #f3f4f6;
+  color: var(--admin-text-primary);
+  vertical-align: middle;
+  min-width: 80px;
+}
+
+.admin-table tbody tr:hover td {
+  background: #f9fafb;
+}
+
+.admin-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+/* ─── Admin utility: Buttons ────────────────────────────────── */
+.admin-btn-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: var(--admin-radius-sm);
+  border: 1px solid var(--brand-primary);
+  background: var(--brand-primary);
+  color: #fff;
+  padding: 8px 14px;
+  font-size: 14px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+  white-space: nowrap;
+}
+.admin-btn-primary:hover:not(:disabled) {
+  background: var(--brand-hover);
+  border-color: var(--brand-hover);
+}
+.admin-btn-primary:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.admin-btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: var(--admin-radius-sm);
+  border: 1px solid var(--admin-card-border);
+  background: #fff;
+  color: var(--admin-text-primary);
+  padding: 8px 14px;
+  font-size: 14px;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+  white-space: nowrap;
+}
+.admin-btn-secondary:hover:not(:disabled) {
+  background: #f9fafb;
+  border-color: #d1d5db;
+}
+.admin-btn-secondary:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.admin-btn-danger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: var(--admin-radius-sm);
+  border: 1px solid #fecaca;
+  background: #fef2f2;
+  color: #991b1b;
+  padding: 8px 14px;
+  font-size: 14px;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+  white-space: nowrap;
+}
+.admin-btn-danger:hover:not(:disabled) {
+  background: #fee2e2;
+  border-color: #fca5a5;
+}
+.admin-btn-danger:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* ─── Admin utility: Badge / Status chip ────────────────────── */
+.admin-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: 99px;
+  padding: 3px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* ─── Admin utility: Skeleton loading ───────────────────────── */
+@keyframes shimmer {
+  0%   { background-position: -600px 0; }
+  100% { background-position:  600px 0; }
+}
+
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    #f0f0f0 25%,
+    #e8e8e8 50%,
+    #f0f0f0 75%
+  );
+  background-size: 1200px 100%;
+  animation: shimmer 1.6s infinite linear;
+  border-radius: var(--admin-radius-sm);
+}
+
+/* ─── Admin utility: Empty state ────────────────────────────── */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 48px 24px;
+  text-align: center;
+  color: var(--admin-text-muted);
+}
+
+.empty-state-icon {
+  font-size: 40px;
+  line-height: 1;
+  opacity: 0.6;
+}
+
+.empty-state-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--admin-text-secondary);
+  margin: 0;
+}
+
+.empty-state-desc {
+  font-size: 14px;
+  color: var(--admin-text-muted);
+  margin: 0;
+  max-width: 320px;
+}
+
+/* ─── Admin utility: Error banner ───────────────────────────── */
+.admin-error-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid #fecaca;
+  background: #fef2f2;
+  color: #991b1b;
+  border-radius: var(--admin-radius-sm);
+  padding: 12px 16px;
+  font-size: 14px;
+}
+
+/* ─── Mobile: bottom navigation bar ─────────────────────────── */
+.admin-bottom-nav {
+  display: none;
+}
+
+@media (max-width: 767px) {
+  .admin-bottom-nav {
+    display: flex;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 60px;
+    background: var(--brand-primary);
+    border-top: 1px solid var(--brand-hover);
+    z-index: 500;
+    align-items: stretch;
+  }
+
+  .admin-bottom-nav-item {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    text-decoration: none;
+    color: rgba(255, 255, 255, 0.75);
+    font-size: 10px;
+    font-weight: 500;
+    transition: color 0.15s ease, background 0.15s ease;
+    padding: 6px 4px;
+  }
+
+  .admin-bottom-nav-item.active {
+    color: #fff;
+    background: rgba(255, 255, 255, 0.15);
+  }
+
+  .admin-bottom-nav-icon {
+    font-size: 18px;
+    line-height: 1;
+  }
+
+  /* Push page content above bottom nav */
+  .admin-main-mobile-pad {
+    padding-bottom: 72px !important;
+  }
+
+  /* Status filter pills scroll on mobile */
+  .admin-filter-pills {
+    flex-wrap: nowrap !important;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: 4px;
+  }
+
+  /* Order cards full width on mobile */
+  .admin-orders-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* Action buttons stack vertically on mobile */
+  .admin-action-btns {
+    flex-direction: column !important;
+    align-items: stretch !important;
+  }
+}
+
+/* ─── Scrollbars (Webkit) ───────────────────────────────────── */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #d1d5db;
+  border-radius: 99px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #9ca3af;
+}
