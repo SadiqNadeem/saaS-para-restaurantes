@@ -222,7 +222,9 @@ export default function SuperAdminMetricsPage() {
               />
               <YAxis allowDecimals={false} tick={{ fontSize: 12, fill: "#6b7280" }} width={36} />
               <Tooltip
-                formatter={(value: number) => [formatInt(value), "Pedidos"]}
+                formatter={(value: number | undefined) =>
+                  value === undefined ? ["—", "Pedidos"] : [formatInt(value), "Pedidos"]
+                }
                 labelFormatter={(_label, payload) => payload?.[0]?.payload?.fullName ?? _label}
                 contentStyle={{ borderRadius: 8, border: "1px solid #e5e7eb", fontSize: 13 }}
               />

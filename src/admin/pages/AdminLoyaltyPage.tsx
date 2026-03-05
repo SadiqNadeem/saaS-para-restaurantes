@@ -192,8 +192,6 @@ export default function AdminLoyaltyPage() {
     setSavingSettings(false);
   };
 
-  const isEnabled = settings?.loyalty_enabled === true;
-
   const ptsPreview = Math.round(Number(editPointsPerEur || 10) * 20);
   const eurPreview = (Number(editRedeemValue || 1) * (Number(editMinRedeem || 100) / 100)).toFixed(2);
 

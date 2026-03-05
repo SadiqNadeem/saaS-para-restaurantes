@@ -235,7 +235,7 @@ export default function PosOrdersPage() {
 
   // FIX 3: Collect payment handler
   const handleCollectPayment = useCallback(
-    async (orderId: string, method: "cash" | "card", cashGivenAmt: number) => {
+    async (orderId: string, method: "cash" | "card") => {
       const paymentMethod = method === "card" ? "card_on_delivery" : "cash";
 
       const { error } = await supabase
@@ -453,7 +453,7 @@ export default function PosOrdersPage() {
 type CollectPaymentModalProps = {
   orderId: string;
   total: number;
-  onConfirm: (orderId: string, method: "cash" | "card", cashGiven: number) => Promise<void>;
+  onConfirm: (orderId: string, method: "cash" | "card") => Promise<void>;
   onClose: () => void;
 };
 
@@ -470,7 +470,7 @@ function CollectPaymentModal({ orderId, total, onConfirm, onClose }: CollectPaym
 
   const handleConfirm = async () => {
     setSaving(true);
-    await onConfirm(orderId, method, cashNum || 0);
+    await onConfirm(orderId, method);
     setSaving(false);
   };
 
