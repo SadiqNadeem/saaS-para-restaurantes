@@ -65,6 +65,7 @@ function PosLayoutInner() {
   };
 
   const isOrdersActive = location.pathname.includes("/orders");
+  const isFloorPlanActive = location.pathname.includes("/floor-plan");
 
   const roleStyle = role ? (ROLE_COLORS[role] ?? ROLE_COLORS.staff) : null;
 
@@ -229,6 +230,46 @@ function PosLayoutInner() {
               }}
             >
               Caja
+            </Link>
+
+            {/* Mesas */}
+            <Link
+              to={`${posBase}/tables`}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                padding: "11px 14px",
+                borderRadius: 8,
+                fontSize: 15,
+                fontWeight: location.pathname.includes("/tables") ? 600 : 400,
+                color: location.pathname.includes("/tables") ? "#f1f5f9" : "#94a3b8",
+                background: location.pathname.includes("/tables") ? "#334155" : "transparent",
+                textDecoration: "none",
+                transition: "background 0.12s, color 0.12s",
+                minHeight: 44,
+              }}
+            >
+              Mesas
+            </Link>
+
+            {/* Plano de sala */}
+            <Link
+              to={`${posBase}/floor-plan`}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                padding: "11px 14px",
+                borderRadius: 8,
+                fontSize: 15,
+                fontWeight: isFloorPlanActive ? 600 : 400,
+                color: isFloorPlanActive ? "#f1f5f9" : "#94a3b8",
+                background: isFloorPlanActive ? "#334155" : "transparent",
+                textDecoration: "none",
+                transition: "background 0.12s, color 0.12s",
+                minHeight: 44,
+              }}
+            >
+              Plano de sala
             </Link>
 
             {/* Pedidos — with pending-web badge */}

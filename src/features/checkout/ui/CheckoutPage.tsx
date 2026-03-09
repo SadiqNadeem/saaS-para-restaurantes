@@ -233,15 +233,18 @@ export default function CheckoutPage({
   );
 
   const primaryErrors = useMemo(() => Object.values(errors).slice(0, 2), [errors]);
-  const bannerErrors = useMemo(() => {
-    const currentErrors = Object.values(validation.errors);
-    return Array.from(new Set(currentErrors)).slice(0, 2);
-  }, [validation.errors]);
   const paymentLabel = useMemo(() => {
     if (draft.payment.method === "cash") return "Efectivo";
     if (draft.payment.method === "card_on_delivery") return "Tarjeta (datafono)";
+    if (draft.payment.method === "stripe_online" || draft.payment.method === "card_online") {
+      return "Tarjeta online (Stripe)";
+    }
     return "Tarjeta online (Stripe)";
   }, [draft.payment.method]);
+  const activeStepIndex = useMemo(
+    () => Math.max(0, STEPS.findIndex((item) => item.key === step)),
+    [step]
+  );
 
   const handleNext = () => {
     if (isSubmitting) {
@@ -306,16 +309,9 @@ export default function CheckoutPage({
   }
 
   return (
-    <section style={{ display: "grid", gap: 12 }}>
-      <h2>Checkout</h2>
+    <section style={{ display: "grid", gap: 14 }}>
+      <h2 style={{ margin: 0, fontSize: 22, color: "#e2e8f0" }}>Checkout</h2>
 
-      {bannerErrors.length > 0 && (
-        <div style={{ color: "crimson" }}>
-          {bannerErrors.map((message, index) => (
-            <div key={`${message}-${index}`}>{message}</div>
-          ))}
-        </div>
-      )}
       {minOrderMessage ? (
         <div
           role="alert"
@@ -336,54 +332,102 @@ export default function CheckoutPage({
           position: "sticky",
           top: 0,
           zIndex: 2,
-          padding: 10,
-          border: "1px solid rgba(255,255,255,0.2)",
-          borderRadius: 10,
-          background: "rgba(0,0,0,0.45)",
+          padding: 12,
+          border: "1px solid rgba(148,163,184,0.28)",
+          borderRadius: 14,
+          background: "rgba(15,23,42,0.76)",
           display: "grid",
-          gap: 4,
+          gap: 10,
+          boxShadow: "0 12px 28px rgba(2,6,23,0.28)",
         }}
       >
-        <strong>Resumen</strong>
-        <div>Subtotal: {cartTotal.toFixed(2)} EUR</div>
-        <div>
-          Envio:{" "}
-          {draft.orderType === "pickup"
-            ? "0.00 EUR"
-            : isFreeDelivery
-            ? "Envío gratis (0.00 EUR)"
-            : `${deliveryFee.toFixed(2)} EUR`}
+        <strong style={{ fontSize: 14, color: "#e2e8f0" }}>Resumen</strong>
+        <div style={{ display: "grid", gap: 7, fontSize: 13 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", color: "#cbd5e1" }}>
+            <span>Subtotal</span>
+            <span style={{ fontWeight: 700 }}>{cartTotal.toFixed(2)} EUR</span>
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between", color: "#cbd5e1" }}>
+            <span>Envio</span>
+            <span style={{ fontWeight: 700 }}>
+              {draft.orderType === "pickup"
+                ? "0.00 EUR"
+                : isFreeDelivery
+                ? "Envio gratis"
+                : `${deliveryFee.toFixed(2)} EUR`}
+            </span>
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between", color: "#cbd5e1" }}>
+            <span>Pago</span>
+            <span style={{ fontWeight: 700 }}>{paymentLabel}</span>
+          </div>
+          {draft.payment.method === "cash" && (
+            <>
+              <div style={{ display: "flex", justifyContent: "space-between", color: "#cbd5e1" }}>
+                <span>Pagas con</span>
+                <span style={{ fontWeight: 700 }}>{cashGiven.toFixed(2)} EUR</span>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", color: "#cbd5e1" }}>
+                <span>Cambio</span>
+                <span style={{ fontWeight: 700, color: "#86efac" }}>{change.toFixed(2)} EUR</span>
+              </div>
+            </>
+          )}
         </div>
-        <div>Total: {totalFinal.toFixed(2)} EUR</div>
-        <div>Pago: {paymentLabel}</div>
-        {draft.payment.method === "cash" && (
-          <>
-            <div>Pagas con: {cashGiven.toFixed(2)} EUR</div>
-            <div>Cambio: {change.toFixed(2)} EUR</div>
-          </>
-        )}
+        <div
+          style={{
+            borderTop: "1px solid rgba(148,163,184,0.26)",
+            paddingTop: 9,
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+          }}
+        >
+          <span style={{ fontSize: 13, color: "#cbd5e1" }}>Total final</span>
+          <span style={{ fontSize: 20, fontWeight: 900, color: "#f8fafc" }}>
+            {totalFinal.toFixed(2)} EUR
+          </span>
+        </div>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(5, minmax(0,1fr))", gap: 6 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(5, minmax(0,1fr))", gap: 8 }}>
         {STEPS.map((item, index) => {
           const active = item.key === step;
           const disabledByType = draft.orderType === "pickup" && item.key === "delivery";
+          const completed = !disabledByType && index < activeStepIndex;
 
           return (
             <div
               key={item.key}
               style={{
-                border: "1px solid rgba(255,255,255,0.2)",
-                borderRadius: 10,
-                padding: "6px 8px",
+                border: `1px solid ${
+                  active
+                    ? "rgba(78,197,128,0.5)"
+                    : completed
+                    ? "rgba(96,165,250,0.45)"
+                    : "rgba(148,163,184,0.3)"
+                }`,
+                borderRadius: 12,
+                padding: "7px 8px",
                 textAlign: "center",
                 fontSize: 12,
-                fontWeight: active ? 800 : 600,
-                background: active ? "rgba(255,255,255,0.18)" : "transparent",
-                opacity: disabledByType ? 0.5 : 1,
+                fontWeight: active ? 800 : 700,
+                background: active
+                  ? "rgba(78,197,128,0.2)"
+                  : completed
+                  ? "rgba(59,130,246,0.15)"
+                  : "rgba(15,23,42,0.45)",
+                color: disabledByType ? "rgba(148,163,184,0.7)" : "#e2e8f0",
+                opacity: disabledByType ? 0.58 : 1,
+                boxShadow: active ? "0 8px 18px rgba(78,197,128,0.2)" : "none",
+                display: "grid",
+                gap: 3,
               }}
             >
-              {index + 1}. {item.label}
+              <span style={{ fontSize: 11, fontWeight: 800 }}>
+                {completed ? "OK" : index + 1}
+              </span>
+              <span>{item.label}</span>
             </div>
           );
         })}
@@ -392,8 +436,8 @@ export default function CheckoutPage({
       {step === "customer" && (
         <StepCustomer
           onContinue={handleNext}
-          disabledContinue={!validation.ok || isSubmitting}
-          primaryErrors={touched.customerName || touched.customerPhone ? primaryErrors : []}
+          disabledContinue={isSubmitting}
+          primaryErrors={[]}
         />
       )}
       {step === "type" && (
@@ -433,7 +477,7 @@ export default function CheckoutPage({
         />
       )}
 
-      {import.meta.env.DEV && <pre>{JSON.stringify(draft, null, 2)}</pre>}
     </section>
   );
 }
+

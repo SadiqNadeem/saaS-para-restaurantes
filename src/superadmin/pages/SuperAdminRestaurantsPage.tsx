@@ -1,6 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
+import {
+  createDefaultFeatureMap,
+  FEATURE_KEYS,
+  FEATURE_LABELS,
+  mergeFeatureRows,
+  type FeatureKey,
+  type RestaurantFeatureMap,
+} from "../../admin/features/restaurantFeatures";
 import { supabase } from "../../lib/supabase";
 
 type RestaurantRow = {
@@ -62,6 +70,11 @@ function buildRestaurantUrl(row: RestaurantRow): string {
 type DnsInfoTarget = {
   slug: string;
   customDomain: string | null;
+};
+
+type FeatureRow = {
+  feature_key: string;
+  enabled: boolean | null;
 };
 
 function DnsInfoModal({ target, onClose }: { target: DnsInfoTarget; onClose: () => void }) {
@@ -220,6 +233,10 @@ export default function SuperAdminRestaurantsPage() {
   const [editCustomDomain, setEditCustomDomain] = useState("");
 
   const [dnsTarget, setDnsTarget] = useState<DnsInfoTarget | null>(null);
+  const [featureTarget, setFeatureTarget] = useState<RestaurantRow | null>(null);
+  const [featureMap, setFeatureMap] = useState<RestaurantFeatureMap>(createDefaultFeatureMap(true));
+  const [featureLoading, setFeatureLoading] = useState(false);
+  const [featureSaving, setFeatureSaving] = useState(false);
 
   const loadRestaurants = useCallback(async () => {
     setLoading(true);
@@ -454,6 +471,59 @@ export default function SuperAdminRestaurantsPage() {
     await loadRestaurants();
   };
 
+  const openFeaturesEditor = async (row: RestaurantRow) => {
+    setFeatureTarget(row);
+    setFeatureLoading(true);
+    setFeatureSaving(false);
+    setError(null);
+
+    const { data, error: queryError } = await supabase
+      .from("restaurant_features")
+      .select("feature_key,enabled")
+      .eq("restaurant_id", row.id);
+
+    if (queryError) {
+      setFeatureMap(createDefaultFeatureMap(true));
+      setFeatureLoading(false);
+      setError(queryError.message || "No se pudieron cargar las features.");
+      return;
+    }
+
+    const rows = Array.isArray(data) ? (data as FeatureRow[]) : [];
+    setFeatureMap(mergeFeatureRows(rows));
+    setFeatureLoading(false);
+  };
+
+  const toggleFeature = (featureKey: FeatureKey) => {
+    setFeatureMap((prev) => ({ ...prev, [featureKey]: !prev[featureKey] }));
+  };
+
+  const saveFeatures = async () => {
+    if (!featureTarget) return;
+
+    setFeatureSaving(true);
+    setError(null);
+
+    const payload = FEATURE_KEYS.map((featureKey) => ({
+      restaurant_id: featureTarget.id,
+      feature_key: featureKey,
+      enabled: featureMap[featureKey],
+    }));
+
+    const { error: upsertError } = await supabase
+      .from("restaurant_features")
+      .upsert(payload, { onConflict: "restaurant_id,feature_key" });
+
+    if (upsertError) {
+      setFeatureSaving(false);
+      setError(upsertError.message || "No se pudieron guardar las features.");
+      return;
+    }
+
+    setFeatureSaving(false);
+    setFeatureTarget(null);
+  };
+
   return (
     <section style={{ display: "grid", gap: 12 }}>
       <header
@@ -519,7 +589,7 @@ export default function SuperAdminRestaurantsPage() {
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "1.6fr 1fr 1fr 90px 150px 240px",
+              gridTemplateColumns: "1.6fr 1fr 1fr 90px 150px 320px",
               gap: 8,
               padding: "10px 12px",
               background: "#f9fafb",
@@ -545,7 +615,7 @@ export default function SuperAdminRestaurantsPage() {
                 key={row.id}
                 style={{
                   display: "grid",
-                  gridTemplateColumns: "1.6fr 1fr 1fr 90px 150px 240px",
+                  gridTemplateColumns: "1.6fr 1fr 1fr 90px 150px 320px",
                   gap: 8,
                   padding: "10px 12px",
                   borderTop: "1px solid #f3f4f6",
@@ -633,6 +703,13 @@ export default function SuperAdminRestaurantsPage() {
                     style={{ border: "1px solid #d1d5db", background: "#fff", color: "#111827", borderRadius: 8, padding: "6px 10px", cursor: "pointer" }}
                   >
                     Editar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void openFeaturesEditor(row)}
+                    style={{ border: "1px solid #d1d5db", background: "#fff", color: "#111827", borderRadius: 8, padding: "6px 10px", cursor: "pointer" }}
+                  >
+                    Features
                   </button>
                 </span>
               </div>
@@ -759,6 +836,73 @@ export default function SuperAdminRestaurantsPage() {
       {/* DNS Info modal */}
       {dnsTarget ? (
         <DnsInfoModal target={dnsTarget} onClose={() => setDnsTarget(null)} />
+      ) : null}
+
+      {/* Features modal */}
+      {featureTarget ? (
+        <div
+          role="presentation"
+          onClick={() => !featureSaving && setFeatureTarget(null)}
+          style={{ position: "fixed", inset: 0, background: "rgba(17,24,39,0.45)", display: "grid", placeItems: "center", zIndex: 2100 }}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Features por restaurante"
+            onClick={(event) => event.stopPropagation()}
+            style={{ background: "#fff", borderRadius: 12, border: "1px solid #e5e7eb", width: "min(620px, 95vw)", padding: 16, display: "grid", gap: 12 }}
+          >
+            <h3 style={{ margin: 0 }}>Features - {featureTarget.name}</h3>
+
+            {featureLoading ? (
+              <div style={{ color: "#6b7280" }}>Cargando features...</div>
+            ) : (
+              <div style={{ display: "grid", gap: 8, maxHeight: "56vh", overflowY: "auto", paddingRight: 4 }}>
+                {FEATURE_KEYS.map((featureKey) => (
+                  <label
+                    key={featureKey}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      gap: 10,
+                      border: "1px solid #e5e7eb",
+                      borderRadius: 8,
+                      padding: "8px 10px",
+                      background: featureMap[featureKey] ? "#f0fdf4" : "#f9fafb",
+                    }}
+                  >
+                    <span style={{ color: "#111827", fontSize: 14 }}>{FEATURE_LABELS[featureKey]}</span>
+                    <input
+                      type="checkbox"
+                      checked={featureMap[featureKey]}
+                      onChange={() => toggleFeature(featureKey)}
+                    />
+                  </label>
+                ))}
+              </div>
+            )}
+
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+              <button
+                type="button"
+                onClick={() => setFeatureTarget(null)}
+                disabled={featureSaving}
+                style={{ border: "1px solid #d1d5db", borderRadius: 8, background: "#fff", padding: "8px 10px", cursor: "pointer" }}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={() => void saveFeatures()}
+                disabled={featureSaving || featureLoading}
+                style={{ border: "1px solid var(--brand-primary)", borderRadius: 8, background: "var(--brand-primary)", color: "#fff", padding: "8px 10px", cursor: "pointer" }}
+              >
+                {featureSaving ? "Guardando..." : "Guardar"}
+              </button>
+            </div>
+          </div>
+        </div>
       ) : null}
     </section>
   );

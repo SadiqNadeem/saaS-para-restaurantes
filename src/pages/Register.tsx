@@ -3,13 +3,14 @@ import { Link, useNavigate } from "react-router-dom";
 
 import { useAdminRestaurantStore } from "../admin/context/AdminRestaurantContext";
 import { useAuth } from "../auth/AuthContext";
+import { savePendingSignup } from "../auth/pendingSignup";
 import { supabase } from "../lib/supabase";
 
 // â”€â”€â”€ helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 // â”€â”€â”€ page â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-type Step = "form" | "submitting" | "check_email" | "creating" | "error";
+type Step = "form" | "submitting" | "check_email" | "error";
 
 export default function Register() {
   const navigate = useNavigate();
@@ -64,10 +65,13 @@ export default function Register() {
 
     setStep("submitting");
 
-    // 1. Sign up
-    const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
+    // 1. Sign up (email verification required)
+    const { error: signUpError } = await supabase.auth.signUp({
       email: email.trim(),
       password,
+      options: {
+        emailRedirectTo: `${window.location.origin}/auth/callback`,
+      },
     });
 
     if (signUpError) {
@@ -84,67 +88,8 @@ export default function Register() {
       return;
     }
 
-    // 2. If no session: Supabase requires email confirmation â€” show message
-    if (!signUpData.session) {
-      setStep("check_email");
-      return;
-    }
-
-    // 3. Session available (email confirm disabled) â€” create restaurant immediately
-    setStep("creating");
-
-    const { data: rpcData, error: rpcError } =
-      await supabase.rpc("create_restaurant_and_owner", {
-        p_name: restaurantName,
-      });
-
-    if (rpcError) {
-      console.error(rpcError);
-      setErrorMsg(rpcError.message);
-      setStep("error");
-      return;
-    }
-
-    const rpcRow = Array.isArray(rpcData) ? rpcData[0] : rpcData;
-
-    let restaurantSlug = "";
-    let restaurantId = "";
-
-    if (typeof rpcRow === "string") {
-      restaurantId = rpcRow;
-    } else if (rpcRow && typeof rpcRow === "object") {
-      const row = rpcRow as { slug?: string; restaurant_slug?: string; restaurant_id?: string; id?: string };
-      restaurantSlug = String(row.slug ?? row.restaurant_slug ?? "").trim();
-      restaurantId = String(row.restaurant_id ?? row.id ?? "").trim();
-    }
-
-    if (!restaurantSlug && restaurantId) {
-      const { data: restaurant, error: restaurantError } = await supabase
-        .from("restaurants")
-        .select("slug")
-        .eq("id", restaurantId)
-        .maybeSingle<{ slug: string }>();
-
-      if (restaurantError) {
-        console.error(restaurantError);
-        setErrorMsg(restaurantError.message);
-        setStep("error");
-        return;
-      }
-
-      restaurantSlug = String(restaurant?.slug ?? "").trim();
-    }
-
-    if (!restaurantSlug) {
-      setErrorMsg("No se pudo resolver el slug del restaurante.");
-      setStep("error");
-      return;
-    }
-
-    navigate(
-      `/onboarding?restaurant=${restaurantSlug}&name=${encodeURIComponent(restaurantName.trim())}`,
-      { replace: true }
-    );
+    savePendingSignup({ email: email.trim(), restaurantName: restaurantName.trim() });
+    setStep("check_email");
   };
 
   // â”€â”€ render states â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -160,21 +105,10 @@ export default function Register() {
           <div style={s.icon}>âœ‰ï¸</div>
           <h1 style={s.h1}>Revisa tu email</h1>
           <p style={{ ...s.muted, textAlign: "center", lineHeight: 1.6 }}>
-            Te hemos enviado un enlace de confirmaciÃ³n a <strong>{email}</strong>.
-            Una vez confirmada tu cuenta, inicia sesiÃ³n y completa la configuraciÃ³n
-            de tu restaurante.
+            Te hemos enviado un email de verificaciÃ³n a <strong>{email}</strong>.
+            Revisa tu correo para activar tu cuenta.
           </p>
           <Link to="/login" style={s.link}>Ir al login</Link>
-        </Card>
-      </PageShell>
-    );
-  }
-
-  if (step === "creating") {
-    return (
-      <PageShell>
-        <Card>
-          <p style={{ ...s.muted, textAlign: "center" }}>Creando tu restaurante...</p>
         </Card>
       </PageShell>
     );
@@ -402,4 +336,3 @@ const s = {
     marginBottom: 8,
   },
 } as const;
-

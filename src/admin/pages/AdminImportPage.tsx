@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+﻿import { useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import Papa from "papaparse";
 
@@ -179,18 +179,37 @@ export default function AdminImportPage() {
   // ── render ─────────────────────────────────────────────────────────────────
 
   return (
-    <section style={{ display: "grid", gap: 16, maxWidth: 860 }}>
-      <header>
-        <h2 className="admin-panel" style={{ margin: 0 }}>
+    <section
+      style={{
+        display: "grid",
+        gap: 18,
+        width: "100%",
+        maxWidth: 980,
+        margin: "0 auto",
+        padding: "2px 0 10px",
+      }}
+    >
+      <header
+        style={{
+          border: "1px solid #e5e7eb",
+          borderRadius: 16,
+          padding: 18,
+          background: "linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)",
+          boxShadow: "0 1px 2px rgba(15, 23, 42, 0.06)",
+          display: "grid",
+          gap: 8,
+        }}
+      >
+        <h2 style={{ margin: 0, fontSize: "clamp(1.3rem, 2vw, 1.65rem)", lineHeight: 1.2, color: "#0f172a" }}>
           Importar menú
         </h2>
-        <p style={{ margin: "4px 0 0", fontSize: 14, color: "var(--admin-text-secondary)" }}>
-          Importa categorías y productos desde un archivo CSV.
+        <p style={{ margin: 0, fontSize: 14, color: "#64748b", lineHeight: 1.4 }}>
+          Importa categorías y productos desde un archivo CSV
         </p>
       </header>
 
       {/* Upload + format guide */}
-      <div style={cardStyle}>
+      <div style={{ ...cardStyle, display: "grid", gap: 16 }}>
         <div style={{ marginBottom: 14 }}>
           <strong style={{ fontSize: 14, color: "var(--admin-text-primary)" }}>
             Formato esperado
@@ -218,13 +237,57 @@ Bebidas,Agua,1.50,`}
           }}
         />
 
-        <button
-          type="button"
-          onClick={() => fileInputRef.current?.click()}
-          style={btnSecondaryStyle}
-        >
-          {fileName ? `📄 ${fileName}` : "Seleccionar archivo CSV"}
-        </button>
+        <div style={{ display: "grid", gap: 10 }}>
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            style={{
+              ...btnSecondaryStyle,
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 8,
+              padding: "11px 16px",
+              borderRadius: 12,
+              border: fileName ? "1px solid #86efac" : "1px solid #cbd5e1",
+              background: fileName ? "#f0fdf4" : "#ffffff",
+              color: fileName ? "#166534" : "#0f172a",
+              fontWeight: 700,
+              boxShadow: fileName ? "0 6px 16px rgba(34, 197, 94, 0.14)" : "0 1px 2px rgba(15, 23, 42, 0.06)",
+            }}
+          >
+            <span aria-hidden="true" style={{ fontSize: 14 }}>↑</span>
+            <span>{fileName ? "Archivo cargado" : "Seleccionar archivo CSV"}</span>
+          </button>
+
+          {fileName ? (
+            <div
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 8,
+                width: "fit-content",
+                maxWidth: "100%",
+                border: "1px solid #bbf7d0",
+                borderRadius: 999,
+                background: "#f0fdf4",
+                color: "#166534",
+                padding: "6px 10px",
+                fontSize: 12,
+                fontWeight: 700,
+              }}
+            >
+              <span aria-hidden="true">✓</span>
+              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 420 }}>
+                {fileName}
+              </span>
+            </div>
+          ) : (
+            <span style={{ fontSize: 12, color: "#64748b" }}>
+              Sube un CSV con columnas: categoria, nombre, precio, descripcion.
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Preview table */}
@@ -349,33 +412,35 @@ Bebidas,Agua,1.50,`}
 // ─── styles ───────────────────────────────────────────────────────────────────
 
 const cardStyle: CSSProperties = {
-  border: "1px solid var(--admin-card-border, #e5e7eb)",
-  borderRadius: "var(--admin-radius-md, 12px)",
-  background: "var(--admin-card-bg, #fff)",
-  padding: "16px 18px",
-  boxShadow: "var(--admin-card-shadow)",
+  border: "1px solid #e2e8f0",
+  borderRadius: 16,
+  background: "#fff",
+  padding: "20px 22px",
+  boxShadow: "0 2px 8px rgba(15, 23, 42, 0.06)",
 };
 
 const codeStyle: CSSProperties = {
   fontFamily: "monospace",
   fontSize: 12,
-  background: "#f3f4f6",
-  padding: "1px 5px",
-  borderRadius: 4,
-  color: "#374151",
+  background: "#eef2f7",
+  padding: "2px 6px",
+  borderRadius: 6,
+  color: "#1f2937",
+  border: "1px solid #dbe2ea",
 };
 
 const preStyle: CSSProperties = {
-  fontFamily: "monospace",
+  fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, Liberation Mono, monospace",
   fontSize: 12,
-  background: "#f9fafb",
-  border: "1px solid #e5e7eb",
-  borderRadius: 8,
-  padding: "10px 12px",
+  background: "#f3f6fb",
+  border: "1px solid #dbe2ea",
+  borderRadius: 12,
+  padding: "14px 16px",
   margin: 0,
   overflowX: "auto",
-  color: "#374151",
+  color: "#334155",
   lineHeight: 1.6,
+  boxShadow: "inset 0 1px 0 rgba(255,255,255,0.75)",
 };
 
 const btnPrimaryStyle: CSSProperties = {
@@ -424,3 +489,4 @@ const tdStyle: CSSProperties = {
   color: "var(--admin-text-primary)",
   verticalAlign: "top",
 };
+

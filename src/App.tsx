@@ -93,6 +93,24 @@ type RestaurantHourRow = {
   close_time: string | null;
 };
 
+type WebSettingsRow = {
+  logo_url: string | null;
+  primary_color: string | null;
+  secondary_color: string | null;
+  button_color: string | null;
+  header_title: string | null;
+  header_subtitle: string | null;
+  helper_text: string | null;
+  banner_url: string | null;
+  banner_title: string | null;
+  banner_subtitle: string | null;
+  chip_1: string | null;
+  chip_2: string | null;
+  chip_3: string | null;
+  add_button_text: string | null;
+  add_button_variant: string | null;
+};
+
 function formatEUR(n: number) {
   const value = Number(n) || 0;
   return `${value.toFixed(2)} EUR`;
@@ -194,7 +212,7 @@ function getNextOpeningText(rows: RestaurantHourRow[]): string | null {
 }
 
 export default function App() {
-  const { restaurantId } = useRestaurant();
+  const { restaurantId, name: restaurantName } = useRestaurant();
   const [categories, setCategories] = useState<Category[]>([]);
   const [productsByCat, setProductsByCat] = useState<Record<string, Product[]>>(
     {}
@@ -214,12 +232,18 @@ export default function App() {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [cartOpen, setCartOpen] = useState(false);
   const [isCartButtonHovered, setIsCartButtonHovered] = useState(false);
+  const [activeCategoryId, setActiveCategoryId] = useState<string | null>(null);
+  const [recentlyAddedProductId, setRecentlyAddedProductId] = useState<string | null>(null);
+  const [cartPulse, setCartPulse] = useState(false);
 
   const [orderOkMsg, setOrderOkMsg] = useState<string | null>(null);
   const [orderErrMsg, setOrderErrMsg] = useState<string | null>(null);
   const [isRestaurantClosed, setIsRestaurantClosed] = useState(false);
   const [nextOpeningText, setNextOpeningText] = useState<string | null>(null);
   const [contactPhone, setContactPhone] = useState<string | null>(null);
+  const [restaurantLogoUrl, setRestaurantLogoUrl] = useState<string | null>(null);
+  const [estimatedDeliveryMinutes, setEstimatedDeliveryMinutes] = useState<number | null>(null);
+  const [webSettings, setWebSettings] = useState<WebSettingsRow | null>(null);
 
   const cartCount = useMemo(
     () => cart.reduce((sum, item) => sum + (Number(item.qty) || 0), 0),
@@ -304,23 +328,35 @@ export default function App() {
     let alive = true;
 
     const loadAvailability = async () => {
-      const [hoursResult, settingsResult] = await Promise.all([
+      const [hoursResult, settingsResult, webSettingsResult] = await Promise.all([
         supabase
           .from("restaurant_hours")
           .select("day_of_week,is_open,open_time,close_time")
           .eq("restaurant_id", restaurantId),
         supabase
           .from("restaurant_settings")
-          .select("business_phone")
+          .select("business_phone,logo_url,estimated_delivery_minutes")
           .eq("restaurant_id", restaurantId)
           .limit(1)
+          .maybeSingle(),
+        supabase
+          .from("restaurant_web_settings")
+          .select("logo_url,primary_color,secondary_color,button_color,header_title,header_subtitle,helper_text,banner_url,banner_title,banner_subtitle,chip_1,chip_2,chip_3,add_button_text,add_button_variant")
+          .eq("restaurant_id", restaurantId)
           .maybeSingle(),
       ]);
 
       if (!alive) return;
 
       const phone = String((settingsResult.data as { business_phone?: unknown } | null)?.business_phone ?? "").trim();
+      const logo = String((settingsResult.data as { logo_url?: unknown } | null)?.logo_url ?? "").trim();
+      const estimated = Number(
+        (settingsResult.data as { estimated_delivery_minutes?: unknown } | null)?.estimated_delivery_minutes
+      );
       setContactPhone(phone || null);
+      setRestaurantLogoUrl(logo || null);
+      setEstimatedDeliveryMinutes(Number.isFinite(estimated) && estimated > 0 ? estimated : null);
+      setWebSettings((webSettingsResult.data as WebSettingsRow | null) ?? null);
 
       if (hoursResult.error || !Array.isArray(hoursResult.data)) {
         setIsRestaurantClosed(false);
@@ -388,10 +424,40 @@ export default function App() {
     setModifierGroups([]);
 
     setCartOpen(true);
+    setCartPulse(true);
+    setRecentlyAddedProductId(payload.productId);
 
     setOrderOkMsg(null);
     setOrderErrMsg(null);
   };
+
+  useEffect(() => {
+    if (!categories.length) {
+      setActiveCategoryId(null);
+      return;
+    }
+    setActiveCategoryId((current) => current ?? categories[0].id);
+  }, [categories]);
+
+  useEffect(() => {
+    if (!recentlyAddedProductId) {
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      setRecentlyAddedProductId(null);
+    }, 700);
+    return () => window.clearTimeout(timer);
+  }, [recentlyAddedProductId]);
+
+  useEffect(() => {
+    if (!cartPulse) {
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      setCartPulse(false);
+    }, 420);
+    return () => window.clearTimeout(timer);
+  }, [cartPulse]);
 
   const onAddClick = async (product: Product) => {
     if (isRestaurantClosed) {
@@ -527,19 +593,226 @@ export default function App() {
     setOrderOkMsg(null);
   };
 
+  useEffect(() => {
+    const color = webSettings?.primary_color?.trim();
+    if (color) {
+      document.documentElement.style.setProperty("--brand-primary", color);
+    } else {
+      document.documentElement.style.removeProperty("--brand-primary");
+    }
+    const btnColor = webSettings?.button_color?.trim();
+    document.documentElement.style.setProperty("--brand-button", btnColor || color || "#22c55e");
+  }, [webSettings?.primary_color, webSettings?.button_color]);
+
   const closedMessage = "No se pueden hacer pedidos porque el restaurante esta cerrado";
+  const restaurantInitial = restaurantName.trim().charAt(0).toUpperCase() || "R";
+  const displayLogoUrl = webSettings?.logo_url?.trim() || restaurantLogoUrl;
+  const displayName = webSettings?.header_title?.trim() || restaurantName;
+  const deliveryEtaText = webSettings?.chip_1?.trim()
+    || (estimatedDeliveryMinutes ? `${estimatedDeliveryMinutes}-${estimatedDeliveryMinutes + 10} min` : "20-30 min");
+  const chip2Text = webSettings?.chip_2?.trim() || "Comida rapida";
+  const serviceModeText = webSettings?.chip_3?.trim() || "Recogida y entrega";
+  const addButtonText = webSettings?.add_button_text?.trim() || "Anadir";
+  const headerSubtitle = webSettings?.header_subtitle?.trim() || "";
+  const headerHelper = webSettings?.helper_text?.trim() || "Pedido online";
+  const secondaryColor = webSettings?.secondary_color?.trim() || "#0f172a";
+  const rawButtonColor = webSettings?.button_color?.trim() || "#22c55e";
+  const addButtonVariant = webSettings?.add_button_variant?.trim() || "solid";
+  const bannerUrl = webSettings?.banner_url?.trim() || "";
+  const bannerTitle = webSettings?.banner_title?.trim() || "";
+  const bannerSubtitle = webSettings?.banner_subtitle?.trim() || "";
+  const chips = [deliveryEtaText, chip2Text, serviceModeText].filter(Boolean);
+
+  const goToCategory = (categoryId: string) => {
+    setActiveCategoryId(categoryId);
+    const section = document.getElementById(`category-${categoryId}`);
+    if (section) {
+      section.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  };
 
   return (
     <div
       style={{
-        padding: 20,
+        padding: "14px 18px 32px",
         fontFamily: "system-ui",
-        maxWidth: 900,
+        maxWidth: 1240,
         width: "100%",
         boxSizing: "border-box",
+        margin: "0 auto",
       }}
     >
-      <h1 style={{ marginBottom: 10 }}>Kebab SaaS V1</h1>
+      <header
+        style={{
+          borderRadius: "20px 20px 0 0",
+          padding: "14px 18px",
+          background: secondaryColor,
+          color: "#fff",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
+            <div
+              style={{
+                width: 52,
+                height: 52,
+                borderRadius: 14,
+                overflow: "hidden",
+                background: "rgba(255,255,255,0.18)",
+                border: "1px solid rgba(255,255,255,0.28)",
+                flexShrink: 0,
+                display: "grid",
+                placeItems: "center",
+              }}
+            >
+              {displayLogoUrl ? (
+                <img
+                  src={displayLogoUrl}
+                  alt={`${displayName} logo`}
+                  style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                />
+              ) : (
+                <span aria-hidden style={{ fontWeight: 800, fontSize: 20 }}>
+                  {restaurantInitial}
+                </span>
+              )}
+            </div>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: 17, fontWeight: 800, lineHeight: 1.2 }}>{displayName}</div>
+              {headerSubtitle ? (
+                <div style={{ fontSize: 12, opacity: 0.88, marginTop: 2 }}>{headerSubtitle}</div>
+              ) : null}
+            </div>
+          </div>
+          <div
+            style={{
+              borderRadius: 999,
+              padding: "6px 12px",
+              fontSize: 12,
+              fontWeight: 800,
+              background: isRestaurantClosed ? "rgba(239,68,68,0.22)" : "rgba(255,255,255,0.16)",
+              color: isRestaurantClosed ? "#fca5a5" : "#bbf7d0",
+              border: `1px solid ${isRestaurantClosed ? "rgba(239,68,68,0.4)" : "rgba(255,255,255,0.28)"}`,
+              flexShrink: 0,
+            }}
+          >
+            {isRestaurantClosed ? "Cerrado" : "Abierto"}
+          </div>
+        </div>
+        <div style={{ marginTop: 10, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <span
+            style={{
+              display: "inline-flex",
+              borderRadius: 999,
+              background: "rgba(255,255,255,0.14)",
+              border: "1px solid rgba(255,255,255,0.26)",
+              padding: "5px 10px",
+              fontSize: 12,
+              fontWeight: 700,
+            }}
+          >
+            {headerHelper}
+          </span>
+          {contactPhone ? (
+            <a
+              href={`tel:${contactPhone}`}
+              style={{
+                fontSize: 12,
+                fontWeight: 700,
+                borderRadius: 999,
+                padding: "5px 10px",
+                color: "#fff",
+                background: "rgba(255,255,255,0.14)",
+                border: "1px solid rgba(255,255,255,0.26)",
+                textDecoration: "none",
+              }}
+            >
+              Tel. {contactPhone}
+            </a>
+          ) : null}
+        </div>
+      </header>
+
+      <div
+        style={{
+          position: "relative",
+          borderRadius: "0 0 20px 20px",
+          overflow: "hidden",
+          minHeight: 200,
+          marginBottom: 14,
+          background: secondaryColor,
+        }}
+      >
+        {bannerUrl ? (
+          <img
+            src={bannerUrl}
+            alt="Banner del restaurante"
+            style={{
+              position: "absolute",
+              inset: 0,
+              width: "100%",
+              height: "100%",
+              objectFit: "cover",
+            }}
+          />
+        ) : null}
+        <div
+          style={{
+            position: "absolute",
+            inset: 0,
+            background: "linear-gradient(180deg, rgba(15,23,42,0.18) 0%, rgba(15,23,42,0.72) 100%)",
+          }}
+        />
+        <div
+          style={{
+            position: "relative",
+            zIndex: 1,
+            padding: "16px 18px 22px",
+            color: "#fff",
+            minHeight: 200,
+            boxSizing: "border-box",
+            display: "grid",
+            alignContent: "end",
+            gap: 8,
+          }}
+        >
+          {bannerTitle ? (
+            <h1
+              style={{
+                margin: 0,
+                fontSize: "clamp(1.6rem, 3.5vw, 2.6rem)",
+                lineHeight: 1.1,
+                letterSpacing: -0.3,
+              }}
+            >
+              {bannerTitle}
+            </h1>
+          ) : null}
+          {bannerSubtitle ? (
+            <p style={{ margin: 0, fontSize: 15, opacity: 0.9, lineHeight: 1.4 }}>{bannerSubtitle}</p>
+          ) : null}
+          {chips.length > 0 ? (
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 4 }}>
+              {chips.map((chip) => (
+                <span
+                  key={chip}
+                  style={{
+                    borderRadius: 999,
+                    border: "1px solid rgba(255,255,255,0.4)",
+                    background: "rgba(255,255,255,0.18)",
+                    color: "#fff",
+                    fontSize: 12,
+                    fontWeight: 700,
+                    padding: "5px 11px",
+                  }}
+                >
+                  {chip}
+                </span>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      </div>
 
       {isRestaurantClosed ? (
         <div
@@ -566,84 +839,210 @@ export default function App() {
       {modifiersError && <p style={{ color: "crimson", fontWeight: 600 }}>{modifiersError}</p>}
       {modifiersLoading && <p>Cargando modificadores...</p>}
 
+      {categories.length > 1 ? (
+        <nav
+          style={{
+            position: "sticky",
+            top: 10,
+            zIndex: 30,
+            margin: "0 0 14px",
+            padding: 8,
+            borderRadius: 16,
+            border: "1px solid rgba(15,23,42,0.08)",
+            background: "rgba(255,255,255,0.92)",
+            backdropFilter: "blur(8px)",
+            boxShadow: "0 10px 24px rgba(15, 23, 42, 0.08)",
+            display: "flex",
+            gap: 8,
+            overflowX: "auto",
+          }}
+        >
+          {categories.map((category) => {
+            const isActive = activeCategoryId === category.id;
+            return (
+              <button
+                key={category.id}
+                type="button"
+                onClick={() => goToCategory(category.id)}
+                style={{
+                  borderRadius: 999,
+                  padding: "8px 14px",
+                  border: `1px solid ${isActive ? "var(--brand-primary-border)" : "rgba(15,23,42,0.12)"}`,
+                  background: isActive ? "var(--brand-primary-soft)" : "#fff",
+                  color: isActive ? "var(--brand-hover)" : "#334155",
+                  fontWeight: 700,
+                  fontSize: 13,
+                  whiteSpace: "nowrap",
+                  cursor: "pointer",
+                  boxShadow: isActive ? "0 6px 14px rgba(78,197,128,0.18)" : "none",
+                }}
+              >
+                {category.name}
+              </button>
+            );
+          })}
+        </nav>
+      ) : null}
+
       {categories.map((category) => (
-        <section key={category.id} style={{ marginTop: 24 }}>
-          <h2 style={{ margin: "0 0 12px" }}>{category.name}</h2>
+        <section
+          key={category.id}
+          id={`category-${category.id}`}
+          style={{ marginTop: 24, scrollMarginTop: 92 }}
+        >
+          <h2
+            style={{
+              margin: "0 0 14px",
+              fontSize: "clamp(1.45rem, 2.6vw, 2rem)",
+              lineHeight: 1.1,
+              color: "#0f172a",
+            }}
+          >
+            {category.name}
+          </h2>
 
           {(productsByCat[category.id]?.length ?? 0) === 0 ? (
             <p style={{ opacity: 0.7 }}>No hay productos en esta categoria.</p>
           ) : (
-            <div style={{ display: "grid", gap: 12 }}>
+            <div
+              style={{
+                display: "grid",
+                gap: 18,
+                gridTemplateColumns: "repeat(auto-fit, minmax(270px, 1fr))",
+                alignItems: "stretch",
+              }}
+            >
               {productsByCat[category.id].map((product) => (
                 <div
                   key={product.id}
                   style={{
-                    border: "1px solid rgba(255,255,255,0.12)",
-                    borderRadius: 12,
-                    padding: 12,
+                    border: "1px solid rgba(15, 23, 42, 0.08)",
+                    borderRadius: 20,
+                    padding: 13,
                     display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
+                    flexDirection: "column",
                     gap: 12,
+                    background: "linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)",
+                    boxShadow:
+                      recentlyAddedProductId === product.id
+                        ? "0 0 0 3px rgba(78,197,128,0.25), 0 16px 34px rgba(15, 23, 42, 0.12)"
+                        : "0 10px 26px rgba(15, 23, 42, 0.08)",
+                    minHeight: 330,
+                    transition: "transform 0.18s ease, box-shadow 0.18s ease",
+                  }}
+                  onMouseEnter={(event) => {
+                    event.currentTarget.style.transform = "translateY(-2px)";
+                    if (recentlyAddedProductId !== product.id) {
+                      event.currentTarget.style.boxShadow = "0 14px 32px rgba(15, 23, 42, 0.12)";
+                    }
+                  }}
+                  onMouseLeave={(event) => {
+                    event.currentTarget.style.transform = "translateY(0)";
+                    if (recentlyAddedProductId !== product.id) {
+                      event.currentTarget.style.boxShadow = "0 10px 26px rgba(15, 23, 42, 0.08)";
+                    }
                   }}
                 >
-                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                  <div
+                    style={{
+                      width: "100%",
+                      height: 180,
+                      borderRadius: 16,
+                      overflow: "hidden",
+                      border: "1px solid rgba(15, 23, 42, 0.08)",
+                      background: "#f1f5f9",
+                    }}
+                  >
                     {product.image_url ? (
                       <img
                         src={product.image_url}
                         alt={product.name}
-                        style={{ width: 72, height: 72, objectFit: "cover", borderRadius: 10 }}
+                        style={{ width: "100%", height: "100%", objectFit: "cover" }}
                       />
                     ) : (
                       <div
                         style={{
-                          width: 72,
-                          height: 72,
-                          borderRadius: 10,
-                          border: "1px solid rgba(255,255,255,0.25)",
+                          width: "100%",
+                          height: "100%",
                           display: "grid",
                           placeItems: "center",
-                          fontSize: 12,
-                          opacity: 0.75,
+                          fontSize: 13,
+                          color: "#64748b",
+                          fontWeight: 600,
                         }}
                       >
                         Sin imagen
                       </div>
                     )}
-                    <div>
-                      <div style={{ fontSize: 16, fontWeight: 700 }}>{product.name}</div>
-                      {product.description && (
-                        <div style={{ opacity: 0.75, marginTop: 4 }}>{product.description}</div>
-                      )}
-                    </div>
                   </div>
 
-                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                    <div style={{ fontWeight: 700 }}>{Number(product.price).toFixed(2)} EUR</div>
+                  <div style={{ display: "grid", gap: 7, flex: 1 }}>
+                    <div style={{ fontSize: 19, fontWeight: 800, color: "#0f172a", lineHeight: 1.2 }}>
+                      {product.name}
+                    </div>
+                    {product.description ? (
+                      <div
+                        style={{
+                          color: "#64748b",
+                          fontSize: 14,
+                          lineHeight: 1.45,
+                          display: "-webkit-box",
+                          WebkitLineClamp: 2,
+                          WebkitBoxOrient: "vertical",
+                          overflow: "hidden",
+                        }}
+                      >
+                        {product.description}
+                      </div>
+                    ) : null}
+                  </div>
+
+                  <div
+                    style={{
+                      marginTop: 2,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      gap: 12,
+                    }}
+                  >
+                    <div style={{ fontWeight: 800, color: "#0f172a", fontSize: 20 }}>
+                      {Number(product.price).toFixed(2)} EUR
+                    </div>
 
                     <button
                       style={{
-                        padding: "9px 14px",
-                        borderRadius: 10,
-                        border: "1px solid var(--brand-primary-border)",
-                        background: "var(--brand-primary)",
-                        color: "var(--brand-white)",
+                        padding: "10px 17px",
+                        borderRadius: 999,
+                        border: addButtonVariant === "solid"
+                          ? "none"
+                          : `1px solid ${rawButtonColor}`,
+                        background: addButtonVariant === "soft"
+                          ? `${rawButtonColor}22`
+                          : addButtonVariant === "outline"
+                          ? "transparent"
+                          : rawButtonColor,
+                        color: addButtonVariant === "solid" ? "#fff" : rawButtonColor,
                         cursor: "pointer",
-                        fontWeight: 700,
-                        boxShadow: "0 8px 18px rgba(0, 0, 0, 0.14)",
-                        transition: "background-color 0.18s ease, transform 0.12s ease",
+                        fontWeight: 800,
+                        fontSize: 14,
+                        letterSpacing: 0.15,
+                        boxShadow: addButtonVariant === "solid" ? "0 12px 20px rgba(46, 139, 87, 0.24)" : "none",
+                        transition: "opacity 0.15s ease, transform 0.12s ease",
                       }}
                       disabled={isRestaurantClosed}
                       title={isRestaurantClosed ? closedMessage : undefined}
                       onClick={() => onAddClick(product)}
                       onMouseEnter={(event) => {
-                        event.currentTarget.style.background = "var(--brand-hover)";
+                        event.currentTarget.style.opacity = "0.82";
+                        event.currentTarget.style.transform = "translateY(-1.5px)";
                       }}
                       onMouseLeave={(event) => {
-                        event.currentTarget.style.background = "var(--brand-primary)";
+                        event.currentTarget.style.opacity = "1";
+                        event.currentTarget.style.transform = "translateY(0)";
                       }}
                     >
-                      Añadir
+                      {recentlyAddedProductId === product.id ? "Anadido" : `+ ${addButtonText}`}
                     </button>
                   </div>
                 </div>
@@ -661,26 +1060,52 @@ export default function App() {
         onMouseLeave={() => setIsCartButtonHovered(false)}
         style={{
           position: "fixed",
-          right: 16,
-          bottom: 16,
-          borderRadius: 14,
-          padding: "12px 14px",
-          border: "1px solid var(--brand-primary-border)",
+          right: 14,
+          bottom: 14,
+          borderRadius: 18,
+          padding: "11px 14px",
+          border: "none",
           background: isRestaurantClosed
-            ? "var(--brand-primary)"
+            ? rawButtonColor
             : isCartButtonHovered
-            ? "var(--brand-hover)"
-            : "var(--brand-primary)",
+            ? rawButtonColor
+            : rawButtonColor,
           color: "var(--brand-white)",
           cursor: isRestaurantClosed ? "not-allowed" : "pointer",
           opacity: isRestaurantClosed ? 0.6 : 1,
-          boxShadow: "0 10px 24px rgba(0, 0, 0, 0.18)",
+          boxShadow: cartPulse
+            ? "0 0 0 4px rgba(78,197,128,0.28), 0 16px 30px rgba(0, 0, 0, 0.24)"
+            : "0 14px 30px rgba(0, 0, 0, 0.2)",
           fontWeight: 700,
           transition: "background-color 0.18s ease, box-shadow 0.18s ease, transform 0.12s ease",
           zIndex: 70,
+          minWidth: 220,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 10,
         }}
       >
-        Carrito: <b>{cartCount}</b> - <b>{formatEUR(cartTotal)}</b>
+        <span
+          style={{
+            width: 28,
+            height: 28,
+            borderRadius: "50%",
+            display: "grid",
+            placeItems: "center",
+            background: "rgba(255,255,255,0.22)",
+            border: "1px solid rgba(255,255,255,0.3)",
+            fontSize: 13,
+            fontWeight: 900,
+          }}
+        >
+          {cartCount}
+        </span>
+        <span style={{ display: "grid", textAlign: "left", lineHeight: 1.1 }}>
+          <span style={{ fontSize: 12, opacity: 0.95, fontWeight: 600 }}>Tu carrito</span>
+          <span style={{ fontSize: 15, fontWeight: 900 }}>{formatEUR(cartTotal)}</span>
+        </span>
+        <span style={{ fontSize: 15, fontWeight: 900, lineHeight: 1 }}>+</span>
       </button>
 
       {cartOpen && (
@@ -689,7 +1114,7 @@ export default function App() {
           style={{
             position: "fixed",
             inset: 0,
-            background: "rgba(0,0,0,0.45)",
+            background: "rgba(2, 6, 23, 0.58)",
             zIndex: 60,
             display: "flex",
             justifyContent: "flex-end",
@@ -699,12 +1124,12 @@ export default function App() {
           <div
             onClick={(event) => event.stopPropagation()}
             style={{
-              width: "min(420px, 100vw)",
+              width: "min(470px, 100vw)",
               maxWidth: "100vw",
               height: "100dvh",
-              background: "#0f0f0f",
-              borderLeft: "1px solid rgba(255,255,255,0.12)",
-              padding: 14,
+              background: "linear-gradient(180deg, #020617 0%, #0f172a 100%)",
+              borderLeft: "1px solid rgba(148, 163, 184, 0.25)",
+              padding: 16,
               color: "white",
               boxSizing: "border-box",
               overflowY: "hidden",
@@ -712,18 +1137,47 @@ export default function App() {
               display: "flex",
               flexDirection: "column",
               minWidth: 0,
+              boxShadow: "-18px 0 42px rgba(2, 6, 23, 0.55)",
             }}
           >
-            <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
-              <div style={{ fontSize: 18, fontWeight: 900 }}>Tu carrito</div>
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                gap: 12,
+                alignItems: "center",
+                paddingBottom: 12,
+                borderBottom: "1px solid rgba(148,163,184,0.22)",
+              }}
+            >
+              <div style={{ display: "grid", gap: 2 }}>
+                <div style={{ fontSize: 20, fontWeight: 900, lineHeight: 1.1 }}>Tu carrito</div>
+                <div style={{ fontSize: 12, color: "rgba(226,232,240,0.78)" }}>
+                  Revisa tu pedido y completa checkout
+                </div>
+              </div>
+              <div
+                style={{
+                  minWidth: 30,
+                  height: 30,
+                  borderRadius: 999,
+                  display: "grid",
+                  placeItems: "center",
+                  background: "rgba(78,197,128,0.22)",
+                  border: "1px solid rgba(78,197,128,0.45)",
+                  fontWeight: 800,
+                }}
+              >
+                {cartCount}
+              </div>
               <button
                 onClick={() => setCartOpen(false)}
                 style={{
-                  border: "1px solid rgba(255,255,255,0.18)",
-                  background: "transparent",
+                  border: "1px solid rgba(148,163,184,0.35)",
+                  background: "rgba(15, 23, 42, 0.6)",
                   color: "white",
-                  borderRadius: 10,
-                  padding: "6px 10px",
+                  borderRadius: 12,
+                  padding: "7px 10px",
                   cursor: "pointer",
                 }}
               >
@@ -733,21 +1187,25 @@ export default function App() {
 
             <div
               style={{
-                marginTop: 10,
+                marginTop: 12,
                 flex: 1,
                 minHeight: 0,
                 overflowY: "auto",
                 overflowX: "hidden",
+                paddingRight: 2,
+                display: "grid",
+                gap: 12,
+                alignContent: "start",
               }}
             >
               {orderOkMsg && (
                 <div
                   style={{
-                    marginTop: 10,
-                    padding: 10,
+                    padding: "10px 12px",
                     borderRadius: 12,
-                    background: "rgba(0,255,120,0.12)",
-                    border: "1px solid rgba(0,255,120,0.25)",
+                    background: "rgba(34,197,94,0.14)",
+                    border: "1px solid rgba(74,222,128,0.3)",
+                    color: "#86efac",
                   }}
                 >
                   {orderOkMsg}
@@ -757,12 +1215,11 @@ export default function App() {
               {orderErrMsg && (
                 <div
                   style={{
-                    marginTop: 10,
-                    padding: 10,
+                    padding: "10px 12px",
                     borderRadius: 12,
-                    background: "rgba(255,0,0,0.10)",
-                    border: "1px solid rgba(255,0,0,0.25)",
-                    color: "salmon",
+                    background: "rgba(248,113,113,0.12)",
+                    border: "1px solid rgba(248,113,113,0.28)",
+                    color: "#fecaca",
                   }}
                 >
                   {orderErrMsg}
@@ -770,18 +1227,45 @@ export default function App() {
               )}
 
               {cart.length === 0 && !orderOkMsg ? (
-                <p style={{ marginTop: 14, opacity: 0.75 }}>Aun no has anadido nada.</p>
+                <div
+                  style={{
+                    border: "1px solid rgba(148,163,184,0.22)",
+                    borderRadius: 14,
+                    padding: "14px 12px",
+                    background: "rgba(15,23,42,0.55)",
+                  }}
+                >
+                  <p style={{ margin: 0, opacity: 0.82 }}>Aun no has anadido nada.</p>
+                </div>
               ) : (
                 <>
                   {cart.length > 0 && (
-                    <div style={{ marginTop: 14, display: "grid", gap: 12 }}>
+                    <div
+                      style={{
+                        border: "1px solid rgba(148,163,184,0.2)",
+                        borderRadius: 16,
+                        padding: 12,
+                        background: "rgba(15,23,42,0.5)",
+                        display: "grid",
+                        gap: 12,
+                      }}
+                    >
+                      <div style={{ display: "grid", gap: 2 }}>
+                        <div style={{ fontSize: 13, fontWeight: 800, color: "rgba(203,213,225,0.95)" }}>
+                          Productos del carrito
+                        </div>
+                        <div style={{ fontSize: 11, color: "rgba(148,163,184,0.9)" }}>
+                          Ajusta cantidades y revisa extras
+                        </div>
+                      </div>
                       {cart.map((item) => (
                         <div
                           key={item.id}
                           style={{
-                            border: "1px solid rgba(255,255,255,0.12)",
+                            border: "1px solid rgba(148,163,184,0.22)",
                             borderRadius: 14,
                             padding: 12,
+                            background: "rgba(2,6,23,0.36)",
                           }}
                         >
                           <div
@@ -797,8 +1281,8 @@ export default function App() {
                             <button
                               onClick={() => removeItem(item.id)}
                               style={{
-                                border: "1px solid rgba(255,255,255,0.18)",
-                                background: "transparent",
+                                border: "1px solid rgba(148,163,184,0.32)",
+                                background: "rgba(15,23,42,0.5)",
                                 color: "white",
                                 borderRadius: 10,
                                 padding: "6px 10px",
@@ -852,8 +1336,8 @@ export default function App() {
                               <button
                                 onClick={() => decQty(item.id)}
                                 style={{
-                                  border: "1px solid rgba(255,255,255,0.18)",
-                                  background: "transparent",
+                                  border: "1px solid rgba(148,163,184,0.32)",
+                                  background: "rgba(15,23,42,0.5)",
                                   color: "white",
                                   borderRadius: 10,
                                   padding: "6px 10px",
@@ -868,8 +1352,8 @@ export default function App() {
                               <button
                                 onClick={() => incQty(item.id)}
                                 style={{
-                                  border: "1px solid rgba(255,255,255,0.18)",
-                                  background: "transparent",
+                                  border: "1px solid rgba(148,163,184,0.32)",
+                                  background: "rgba(15,23,42,0.5)",
                                   color: "white",
                                   borderRadius: 10,
                                   padding: "6px 10px",
@@ -889,15 +1373,24 @@ export default function App() {
 
                   <div
                     style={{
-                      marginTop: 14,
-                      paddingTop: 12,
-                      borderTop: "1px solid rgba(255,255,255,0.12)",
                       display: "grid",
-                      gap: 10,
+                      gap: 12,
                     }}
                   >
                     {cart.length > 0 && (
-                      <>
+                      <div
+                        style={{
+                          border: "1px solid rgba(148,163,184,0.22)",
+                          borderRadius: 14,
+                          padding: "12px 12px",
+                          background: "rgba(15,23,42,0.58)",
+                          display: "grid",
+                          gap: 10,
+                        }}
+                      >
+                        <div style={{ fontSize: 13, fontWeight: 800, color: "rgba(203,213,225,0.95)" }}>
+                          Resumen
+                        </div>
                         <div style={{ display: "flex", justifyContent: "space-between" }}>
                           <div style={{ opacity: 0.85 }}>Total</div>
                           <div style={{ fontWeight: 900 }}>{formatEUR(cartTotal)}</div>
@@ -906,8 +1399,8 @@ export default function App() {
                         <button
                           onClick={clearCart}
                           style={{
-                            border: "1px solid rgba(255,255,255,0.18)",
-                            background: "transparent",
+                            border: "1px solid rgba(148,163,184,0.35)",
+                            background: "rgba(15,23,42,0.5)",
                             color: "white",
                             borderRadius: 12,
                             padding: "10px 12px",
@@ -916,20 +1409,40 @@ export default function App() {
                         >
                           Vaciar
                         </button>
-                      </>
+                      </div>
                     )}
 
-                    <CheckoutPage
-                      cart={cart}
-                      cartTotal={cartTotal}
-                      onOrderSuccess={handleOrderSuccess}
-                      onOrderError={handleOrderError}
-                      onClose={() => setCartOpen(false)}
-                      restaurantClosed={isRestaurantClosed}
-                      restaurantClosedMessage={closedMessage}
-                      nextOpeningText={nextOpeningText}
-                      contactPhone={contactPhone}
-                    />
+                    <div
+                      style={{
+                        border: "1px solid rgba(148,163,184,0.24)",
+                        borderRadius: 14,
+                        padding: 12,
+                        background: "rgba(15,23,42,0.6)",
+                        display: "grid",
+                        gap: 10,
+                      }}
+                    >
+                      <div style={{ display: "grid", gap: 2 }}>
+                        <div style={{ fontSize: 13, fontWeight: 800, color: "rgba(203,213,225,0.95)" }}>
+                          Checkout
+                        </div>
+                        <div style={{ fontSize: 11, color: "rgba(148,163,184,0.9)" }}>
+                          Pasos, formulario y confirmacion final
+                        </div>
+                      </div>
+
+                      <CheckoutPage
+                        cart={cart}
+                        cartTotal={cartTotal}
+                        onOrderSuccess={handleOrderSuccess}
+                        onOrderError={handleOrderError}
+                        onClose={() => setCartOpen(false)}
+                        restaurantClosed={isRestaurantClosed}
+                        restaurantClosedMessage={closedMessage}
+                        nextOpeningText={nextOpeningText}
+                        contactPhone={contactPhone}
+                      />
+                    </div>
                   </div>
                 </>
               )}

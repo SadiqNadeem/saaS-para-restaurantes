@@ -13,10 +13,11 @@ type SupabaseLike = {
 
 export async function uploadProductImage(
   supabase: SupabaseLike,
+  restaurantId: string,
   productId: string,
   blob: Blob
 ): Promise<string> {
-  const path = `${productId}/${Date.now()}.webp`;
+  const path = `${restaurantId}/${productId}/${Date.now()}.webp`;
 
   const { error } = await supabase.storage
     .from("product-images")

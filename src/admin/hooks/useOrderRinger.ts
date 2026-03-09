@@ -23,6 +23,7 @@ export function useOrderRinger({ restaurantId, orders }: UseOrderRingerParams) {
   const [soundError, setSoundError] = useState<string | null>(null);
 
   const ringIntervalRef = useRef<number | null>(null);
+  const currentAudioRef = useRef<HTMLAudioElement | null>(null);
   const soundEnabledRef = useRef(false);
   const cycleMutedRef = useRef(false);
 
@@ -42,6 +43,15 @@ export function useOrderRinger({ restaurantId, orders }: UseOrderRingerParams) {
     if (ringIntervalRef.current !== null) {
       window.clearInterval(ringIntervalRef.current);
       ringIntervalRef.current = null;
+    }
+    if (currentAudioRef.current) {
+      try {
+        currentAudioRef.current.pause();
+        currentAudioRef.current.currentTime = 0;
+      } catch {
+        // ignore
+      }
+      currentAudioRef.current = null;
     }
     setIsRinging(false);
   }, []);
@@ -63,6 +73,7 @@ export function useOrderRinger({ restaurantId, orders }: UseOrderRingerParams) {
       }
 
       const audio = new Audio("/new-order.mp3");
+      currentAudioRef.current = audio;
       audio.volume = 1.0;
       audio.currentTime = 0;
       void audio.play().catch((error) => {

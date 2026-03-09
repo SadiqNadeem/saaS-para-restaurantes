@@ -401,6 +401,7 @@ export default function Onboarding() {
           const blob = await prepareImageWebp(logoFile);
           await uploadProductImage(
             supabase,
+            restaurantId,
             `restaurant-logo-${restaurantId}`,
             blob
           );
@@ -507,6 +508,7 @@ export default function Onboarding() {
             const blob = await prepareImageWebp(prod.imageFile);
             const url = await uploadProductImage(
               supabase,
+              restaurantId,
               String(prodData.id),
               blob
             );

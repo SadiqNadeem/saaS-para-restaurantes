@@ -4,6 +4,204 @@ import type { SelectedModifier } from "../components/PosModifierModal";
 export type PosOrderType = "counter" | "pickup" | "delivery";
 export type PosPaymentMethod = "cash" | "card" | "fiado";
 
+// ─── Table types ──────────────────────────────────────────────────────────────
+
+export type TableStatus = "free" | "occupied" | "closing" | "reserved";
+
+export type RestaurantTable = {
+  id: string;
+  restaurant_id: string;
+  name: string;
+  zone: string;
+  capacity: number | null;
+  status: TableStatus;
+  current_order_id: string | null;
+  is_active: boolean;
+  position: number;
+  created_at: string;
+  // QR & visual floor plan fields
+  qr_token: string | null;
+  shape: "square" | "rectangle" | "circle";
+  pos_x: number;
+  pos_y: number;
+  width: number;
+  height: number;
+  merged_with: string[] | null;
+  is_merged_child: boolean;
+  merged_parent_id: string | null;
+};
+
+// ─── Table order functions ────────────────────────────────────────────────────
+
+export async function openTableOrder(
+  restaurantId: string,
+  tableId: string,
+  customerName?: string
+): Promise<{ orderId: string }> {
+  // Create a dine_in order linked to the table
+  const { data, error } = await supabase.rpc("create_order_safe_v2", {
+    p_restaurant_id: restaurantId,
+    p_client_order_key: crypto.randomUUID(),
+    p_payment_method: "cash",
+    p_order_type: "dine_in",
+    p_delivery_fee: 0,
+    p_cash_given: null,
+    p_customer_name: customerName || "Mesa",
+    p_customer_phone: "",
+    p_delivery_address: "",
+    p_notes: JSON.stringify({ pos: true, dine_in: true }),
+    p_items: [],
+    p_source: "pos",
+    p_tip_amount: 0,
+    p_table_id: tableId,
+  });
+
+  if (error) throw new Error(String(error.message ?? "Error al abrir mesa"));
+
+  // RPC returns TABLE(order_id uuid, total numeric) — data is an array
+  type RpcRow = { order_id?: string; id?: string };
+  const row = Array.isArray(data) ? (data[0] as RpcRow) : (data as RpcRow);
+  const orderId = String(row?.order_id ?? row?.id ?? "").trim();
+
+  if (!orderId) throw new Error("No se recibió el ID del pedido");
+
+  // Mark table as occupied (table_id is already set by the RPC)
+  await supabase
+    .from("restaurant_tables")
+    .update({ status: "occupied", current_order_id: orderId })
+    .eq("id", tableId);
+
+  return { orderId };
+}
+
+export async function addItemToTableOrder(
+  orderId: string,
+  restaurantId: string,
+  item: {
+    product_id: string;
+    name: string;
+    base_price: number;
+    qty: number;
+    modifiers: SelectedModifier[];
+    notes: string;
+  }
+): Promise<void> {
+  const extrasTotal = item.modifiers.reduce((s, m) => s + m.price, 0);
+  const unitPrice = item.base_price + extrasTotal;
+  const lineTotal = unitPrice * item.qty;
+
+  const { data: itemRow, error: itemErr } = await supabase
+    .from("order_items")
+    .insert({
+      order_id: orderId,
+      restaurant_id: restaurantId,
+      product_id: item.product_id,
+      qty: item.qty,
+      base_price: item.base_price,
+      extras_total: extrasTotal,
+      final_unit_price: unitPrice,
+      line_total: lineTotal,
+      snapshot_name: item.name,
+      notes: item.notes || null,
+      sent_to_kitchen: false,
+    })
+    .select("id")
+    .single();
+
+  if (itemErr) throw new Error(itemErr.message);
+  const orderItemId = (itemRow as { id: string }).id;
+
+  // Insert modifier options
+  if (item.modifiers.length > 0) {
+    await supabase.from("order_item_modifier_options").insert(
+      item.modifiers.map((m) => ({
+        order_item_id: orderItemId,
+        option_id: m.option_id,
+        option_name: m.option_name,
+        price: m.price,
+      }))
+    );
+  }
+
+  // Recalculate order totals
+  const { data: allItems } = await supabase
+    .from("order_items")
+    .select("line_total")
+    .eq("order_id", orderId);
+
+  const subtotal = (allItems ?? []).reduce(
+    (s, r) => s + Number((r as { line_total: number }).line_total),
+    0
+  );
+
+  await supabase
+    .from("orders")
+    .update({ subtotal, total: subtotal })
+    .eq("id", orderId);
+}
+
+export async function closeTableOrder(
+  orderId: string,
+  tableId: string,
+  payment: PosPaymentMethod,
+  cashGiven: number
+): Promise<void> {
+  const paymentMethod = payment === "card" ? "card_on_delivery" : "cash";
+
+  const updates: Record<string, unknown> = {
+    status: "delivered",
+    payment_method: paymentMethod,
+  };
+  if (payment === "cash" && cashGiven > 0) {
+    updates.cash_given = cashGiven;
+  }
+  if (payment === "fiado") {
+    updates.payment_status = "pending";
+  }
+
+  await Promise.all([
+    supabase.from("orders").update(updates).eq("id", orderId),
+    supabase
+      .from("restaurant_tables")
+      .update({ status: "free", current_order_id: null })
+      .eq("id", tableId),
+  ]);
+}
+
+export async function cancelTableOrder(
+  orderId: string,
+  tableId: string
+): Promise<void> {
+  await Promise.all([
+    supabase
+      .from("orders")
+      .update({ status: "cancelled" })
+      .eq("id", orderId),
+    supabase
+      .from("restaurant_tables")
+      .update({ status: "free", current_order_id: null })
+      .eq("id", tableId),
+  ]);
+}
+
+export async function changeOrderTable(
+  orderId: string,
+  oldTableId: string,
+  newTableId: string
+): Promise<void> {
+  await Promise.all([
+    supabase.from("orders").update({ table_id: newTableId }).eq("id", orderId),
+    supabase
+      .from("restaurant_tables")
+      .update({ status: "free", current_order_id: null })
+      .eq("id", oldTableId),
+    supabase
+      .from("restaurant_tables")
+      .update({ status: "occupied", current_order_id: orderId })
+      .eq("id", newTableId),
+  ]);
+}
+
 type PosCartItem = {
   product_id: string;
   qty: number;

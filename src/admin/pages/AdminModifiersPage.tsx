@@ -67,23 +67,69 @@ type SortableGroupCardProps = {
 function SortableGroupCard({ row, selected, disabled, isSaving, products, onSelect, onEdit, onDelete, onToggle }: SortableGroupCardProps) {
   const { setNodeRef, attributes, listeners, transform, transition, isDragging } = useSortable({ id: row.id, disabled });
   return (
-    <article ref={setNodeRef} style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.65 : 1, border: selected ? "1px solid var(--brand-primary)" : "1px solid #e5e7eb", borderRadius: 12, padding: 12, background: selected ? "var(--brand-primary-soft)" : "#fff", display: "grid", gap: 10 }}>
-      <button type="button" onClick={() => onSelect(row)} style={{ border: "none", background: "transparent", textAlign: "left", padding: 0, cursor: "pointer" }}>
-        <div style={{ fontWeight: 700, color: "#111827" }}>{row.name}</div>
-        <div style={{ fontSize: 12, color: "#6b7280" }}>min: {row.min_select} | max: {row.max_select === null ? "Sin limite" : row.max_select}</div>
+    <article
+      ref={setNodeRef}
+      style={{
+        transform: CSS.Transform.toString(transform),
+        transition,
+        opacity: isDragging ? 0.72 : 1,
+        border: selected ? "1px solid #0f172a" : "1px solid #e2e8f0",
+        borderRadius: 16,
+        padding: 14,
+        background: selected ? "linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%)" : "#fff",
+        boxShadow: isDragging
+          ? "0 10px 24px rgba(15, 23, 42, 0.12)"
+          : selected
+            ? "0 8px 18px rgba(15, 23, 42, 0.08)"
+            : "0 2px 8px rgba(15, 23, 42, 0.05)",
+        display: "grid",
+        gap: 12,
+      }}
+    >
+      <button
+        type="button"
+        onClick={() => onSelect(row)}
+        style={{ border: "none", background: "transparent", textAlign: "left", padding: 0, cursor: "pointer", minWidth: 0 }}
+      >
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+          <div style={{ fontWeight: 700, color: "#0f172a", fontSize: 15, lineHeight: 1.25 }}>{row.name}</div>
+          <span
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              padding: "3px 10px",
+              borderRadius: 999,
+              fontSize: 11,
+              fontWeight: 700,
+              border: row.is_active ? "1px solid #86efac" : "1px solid #fecaca",
+              background: row.is_active ? "#f0fdf4" : "#fef2f2",
+              color: row.is_active ? "#166534" : "#991b1b",
+            }}
+          >
+            {row.is_active ? "Activo" : "Inactivo"}
+          </span>
+        </div>
+        <div style={{ marginTop: 6, display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <span style={{ fontSize: 12, color: "#475569", background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 999, padding: "3px 9px", fontWeight: 600 }}>
+            min: {row.min_select}
+          </span>
+          <span style={{ fontSize: 12, color: "#475569", background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 999, padding: "3px 9px", fontWeight: 600 }}>
+            max: {row.max_select === null ? "Sin limite" : row.max_select}
+          </span>
+        </div>
       </button>
 
       {products.length > 0 && (
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
           {products.map((p) => (
             <span
               key={p.id}
               style={{
-                background: "var(--brand-primary-soft)",
-                color: "var(--brand-hover)",
-                border: "1px solid var(--brand-primary-border)",
-                borderRadius: 6,
-                padding: "2px 7px",
+                background: "#eef2ff",
+                color: "#3730a3",
+                border: "1px solid #c7d2fe",
+                borderRadius: 999,
+                padding: "3px 8px",
                 fontSize: 11,
                 fontWeight: 600,
               }}
@@ -95,10 +141,79 @@ function SortableGroupCard({ row, selected, disabled, isSaving, products, onSele
       )}
 
       <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-        <button type="button" {...attributes} {...listeners} disabled={disabled} style={{ border: "1px solid #d1d5db", background: "#fff", borderRadius: 8, padding: "6px 10px", cursor: disabled ? "not-allowed" : "grab" }}>Arrastrar</button>
-        <label style={{ display: "inline-flex", alignItems: "center", gap: 6, color: "#374151" }}><input type="checkbox" checked={row.is_active} disabled={disabled || isSaving} onChange={() => onToggle(row)} />Activo</label>
-        <button type="button" onClick={() => onEdit(row)} disabled={disabled || isSaving} style={{ border: "1px solid #d1d5db", background: "#fff", borderRadius: 8, padding: "6px 10px", cursor: disabled || isSaving ? "not-allowed" : "pointer" }}>Editar</button>
-        <button type="button" onClick={() => onDelete(row)} disabled={disabled || isSaving} style={{ border: "1px solid #fecaca", background: "#fef2f2", color: "#991b1b", borderRadius: 8, padding: "6px 10px", cursor: disabled || isSaving ? "not-allowed" : "pointer" }}>Eliminar</button>
+        <button
+          type="button"
+          {...attributes}
+          {...listeners}
+          disabled={disabled}
+          style={{
+            border: "1px solid #d1d5db",
+            background: "#fff",
+            borderRadius: 10,
+            padding: "8px 12px",
+            cursor: disabled ? "not-allowed" : "grab",
+            fontSize: 12,
+            fontWeight: 600,
+            color: "#334155",
+            minHeight: 36,
+          }}
+        >
+          Arrastrar
+        </button>
+        <label
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 8,
+            color: "#334155",
+            fontSize: 13,
+            fontWeight: 600,
+            padding: "8px 12px",
+            border: "1px solid #dbe2ea",
+            borderRadius: 10,
+            background: "#ffffff",
+            minHeight: 36,
+          }}
+        >
+          <input type="checkbox" checked={row.is_active} disabled={disabled || isSaving} onChange={() => onToggle(row)} />
+          Activo
+        </label>
+        <button
+          type="button"
+          onClick={() => onEdit(row)}
+          disabled={disabled || isSaving}
+          style={{
+            border: "1px solid #d1d5db",
+            background: "#fff",
+            borderRadius: 10,
+            padding: "8px 12px",
+            cursor: disabled || isSaving ? "not-allowed" : "pointer",
+            fontSize: 13,
+            fontWeight: 600,
+            color: "#334155",
+            minHeight: 36,
+          }}
+        >
+          Editar
+        </button>
+        <button
+          type="button"
+          onClick={() => onDelete(row)}
+          disabled={disabled || isSaving}
+          style={{
+            border: "1px solid #fca5a5",
+            background: "#fef2f2",
+            color: "#991b1b",
+            borderRadius: 10,
+            padding: "8px 12px",
+            cursor: disabled || isSaving ? "not-allowed" : "pointer",
+            fontSize: 13,
+            fontWeight: 700,
+            minHeight: 36,
+          }}
+        >
+          Eliminar
+        </button>
       </div>
     </article>
   );
@@ -115,16 +230,89 @@ type SortableOptionCardProps = {
 
 function SortableOptionCard({ row, disabled, isSaving, onEdit, onDelete, onToggle }: SortableOptionCardProps) {
   const { setNodeRef, attributes, listeners, transform, transition, isDragging } = useSortable({ id: row.id, disabled });
+  const hasExtraPrice = Number(row.price) > 0;
   return (
-    <article ref={setNodeRef} style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.65 : 1, border: "1px solid #e5e7eb", borderRadius: 12, padding: 12, display: "grid", gap: 10, background: "#fff" }}>
+    <article
+      ref={setNodeRef}
+      style={{
+        transform: CSS.Transform.toString(transform),
+        transition,
+        opacity: isDragging ? 0.72 : 1,
+        border: "1px solid #e2e8f0",
+        borderRadius: 14,
+        padding: 14,
+        display: "grid",
+        gap: 12,
+        background: "linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)",
+        boxShadow: isDragging ? "0 10px 24px rgba(15, 23, 42, 0.12)" : "0 2px 8px rgba(15, 23, 42, 0.05)",
+      }}
+    >
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
-        <div><div style={{ fontWeight: 700, color: "#111827" }}>{row.name}</div><div style={{ color: "#374151", fontSize: 14 }}>{row.price.toFixed(2)} EUR</div></div>
-        <button type="button" {...attributes} {...listeners} disabled={disabled} style={{ border: "1px solid #d1d5db", background: "#fff", borderRadius: 8, padding: "6px 10px", cursor: disabled ? "not-allowed" : "grab" }}>Arrastrar</button>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <div style={{ fontWeight: 700, color: "#0f172a", fontSize: 15 }}>{row.name}</div>
+            <span
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                padding: "3px 10px",
+                borderRadius: 999,
+                fontSize: 11,
+                fontWeight: 700,
+                border: row.is_active ? "1px solid #86efac" : "1px solid #fecaca",
+                background: row.is_active ? "#f0fdf4" : "#fef2f2",
+                color: row.is_active ? "#166534" : "#991b1b",
+              }}
+            >
+              {row.is_active ? "Activa" : "Inactiva"}
+            </span>
+          </div>
+          <div style={{ marginTop: 6 }}>
+            <span
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                borderRadius: 999,
+                padding: "4px 10px",
+                fontSize: 12,
+                fontWeight: 700,
+                border: hasExtraPrice ? "1px solid #bfdbfe" : "1px solid #dbe2ea",
+                color: hasExtraPrice ? "#1d4ed8" : "#475569",
+                background: hasExtraPrice ? "#eff6ff" : "#f8fafc",
+              }}
+            >
+              {hasExtraPrice ? `+${row.price.toFixed(2)} EUR` : "Sin precio extra"}
+            </span>
+          </div>
+        </div>
+        <button
+          type="button"
+          {...attributes}
+          {...listeners}
+          disabled={disabled}
+          style={{
+            border: "1px solid #d1d5db",
+            background: "#fff",
+            borderRadius: 10,
+            padding: "8px 12px",
+            cursor: disabled ? "not-allowed" : "grab",
+            fontSize: 12,
+            fontWeight: 600,
+            color: "#334155",
+            minHeight: 36,
+            flexShrink: 0,
+          }}
+        >
+          Arrastrar
+        </button>
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-        <label style={{ display: "inline-flex", alignItems: "center", gap: 6, color: "#374151" }}><input type="checkbox" checked={row.is_active} disabled={disabled || isSaving} onChange={() => onToggle(row)} />Activa</label>
-        <button type="button" onClick={() => onEdit(row)} disabled={disabled || isSaving} style={{ border: "1px solid #d1d5db", background: "#fff", borderRadius: 8, padding: "6px 10px", cursor: disabled || isSaving ? "not-allowed" : "pointer" }}>Editar</button>
-        <button type="button" onClick={() => onDelete(row)} disabled={disabled || isSaving} style={{ border: "1px solid #fecaca", background: "#fef2f2", color: "#991b1b", borderRadius: 8, padding: "6px 10px", cursor: disabled || isSaving ? "not-allowed" : "pointer" }}>Eliminar</button>
+        <label style={{ display: "inline-flex", alignItems: "center", gap: 8, color: "#334155", fontSize: 13, fontWeight: 600, padding: "8px 12px", border: "1px solid #dbe2ea", borderRadius: 10, background: "#fff", minHeight: 36 }}>
+          <input type="checkbox" checked={row.is_active} disabled={disabled || isSaving} onChange={() => onToggle(row)} />
+          Visible
+        </label>
+        <button type="button" onClick={() => onEdit(row)} disabled={disabled || isSaving} style={{ border: "1px solid #d1d5db", background: "#fff", borderRadius: 10, padding: "8px 12px", cursor: disabled || isSaving ? "not-allowed" : "pointer", fontSize: 13, fontWeight: 600, color: "#334155", minHeight: 36 }}>Editar</button>
+        <button type="button" onClick={() => onDelete(row)} disabled={disabled || isSaving} style={{ border: "1px solid #fca5a5", background: "#fef2f2", color: "#991b1b", borderRadius: 10, padding: "8px 12px", cursor: disabled || isSaving ? "not-allowed" : "pointer", fontSize: 13, fontWeight: 700, minHeight: 36 }}>Eliminar</button>
       </div>
     </article>
   );
@@ -585,12 +773,24 @@ export default function AdminModifiersPage() {
   };
 
   return (
-    <section style={{ display: "grid", gap: 16 }}>
-      <header style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
-        <div>
-          <h2 style={{ margin: 0 }}>Modificadores</h2>
-          <p style={{ margin: "4px 0 0", color: "#6b7280" }}>Grupos y opciones de modificadores</p>
-        </div>
+    <section style={{ display: "grid", gap: 18, width: "100%" }}>
+      <header
+        style={{
+          display: "grid",
+          gap: 8,
+          border: "1px solid #e5e7eb",
+          borderRadius: 16,
+          padding: 18,
+          background: "linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)",
+          boxShadow: "0 1px 2px rgba(15, 23, 42, 0.06)",
+        }}
+      >
+        <h2 style={{ margin: 0, fontSize: "clamp(1.3rem, 2vw, 1.65rem)", lineHeight: 1.2, color: "#0f172a" }}>
+          Modificadores
+        </h2>
+        <p style={{ margin: 0, color: "#64748b", fontSize: 14, lineHeight: 1.4 }}>
+          Grupos y opciones de modificadores
+        </p>
       </header>
 
       {error ? (
@@ -599,11 +799,38 @@ export default function AdminModifiersPage() {
         </div>
       ) : null}
 
-      <div style={{ display: "grid", gridTemplateColumns: "minmax(280px, 380px) minmax(360px, 1fr)", gap: 16 }}>
-        <section style={{ border: "1px solid #e5e7eb", borderRadius: 12, padding: 12, display: "grid", gap: 12 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
+          gap: 16,
+          alignItems: "start",
+        }}
+      >
+        <section
+          style={{
+            border: "1px solid #e2e8f0",
+            borderRadius: 14,
+            padding: 14,
+            display: "grid",
+            gap: 14,
+            background: "#ffffff",
+            boxShadow: "0 1px 2px rgba(15, 23, 42, 0.05)",
+            minHeight: 360,
+            alignContent: "start",
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              gap: 10,
+              flexWrap: "wrap",
+            }}
+          >
             <h3 style={{ margin: 0 }}>Grupos</h3>
-            <button type="button" onClick={openCreateGroupModal} disabled={!canManage || groupsBusy} style={{ borderRadius: 8, border: "1px solid var(--brand-primary)", background: "var(--brand-primary)", color: "var(--brand-white)", padding: "6px 10px", cursor: !canManage || groupsBusy ? "not-allowed" : "pointer", opacity: !canManage || groupsBusy ? 0.6 : 1 }}>
+            <button type="button" onClick={openCreateGroupModal} disabled={!canManage || groupsBusy} style={{ borderRadius: 12, border: "1px solid #0f172a", background: "#0f172a", color: "#fff", padding: "9px 14px", fontWeight: 700, fontSize: 13, boxShadow: "0 8px 20px rgba(15, 23, 42, 0.18)", cursor: !canManage || groupsBusy ? "not-allowed" : "pointer", opacity: !canManage || groupsBusy ? 0.6 : 1 }}>
               + Grupo
             </button>
           </div>
@@ -614,7 +841,7 @@ export default function AdminModifiersPage() {
           {!loading && groups.length > 0 ? (
             <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onGroupsDragEnd}>
               <SortableContext items={groupIds} strategy={verticalListSortingStrategy}>
-                <div style={{ display: "grid", gap: 10 }}>
+                <div style={{ display: "grid", gap: 12 }}>
                   {groups.map((group) => (
                     <SortableGroupCard
                       key={group.id}
@@ -635,13 +862,41 @@ export default function AdminModifiersPage() {
           ) : null}
         </section>
 
-        <section style={{ border: "1px solid #e5e7eb", borderRadius: 12, padding: 12, display: "grid", gap: 12 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-            <div>
+        <section
+          style={{
+            border: "1px solid #e2e8f0",
+            borderRadius: 14,
+            padding: 14,
+            display: "grid",
+            gap: 14,
+            background: "#ffffff",
+            boxShadow: "0 1px 2px rgba(15, 23, 42, 0.05)",
+            minHeight: 360,
+            alignContent: "start",
+          }}
+        >
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            <div style={{ display: "grid", gap: 6 }}>
               <h3 style={{ margin: 0 }}>Opciones</h3>
-              <div style={{ fontSize: 12, color: "#6b7280" }}>Grupo seleccionado: {selectedGroup?.name ?? "-"}</div>
+              <div
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  borderRadius: 999,
+                  padding: "4px 10px",
+                  fontSize: 12,
+                  fontWeight: 700,
+                  border: selectedGroup ? "1px solid #bfdbfe" : "1px solid #dbe2ea",
+                  background: selectedGroup ? "#eff6ff" : "#f8fafc",
+                  color: selectedGroup ? "#1d4ed8" : "#64748b",
+                  width: "fit-content",
+                  maxWidth: "100%",
+                }}
+              >
+                Grupo: {selectedGroup?.name ?? "Sin seleccionar"}
+              </div>
             </div>
-            <button type="button" onClick={openCreateOptionModal} disabled={!canManage || optionsBusy || !selectedGroupId} style={{ borderRadius: 8, border: "1px solid var(--brand-primary)", background: "var(--brand-primary)", color: "var(--brand-white)", padding: "6px 10px", cursor: !canManage || optionsBusy || !selectedGroupId ? "not-allowed" : "pointer", opacity: !canManage || optionsBusy || !selectedGroupId ? 0.6 : 1 }}>
+            <button type="button" onClick={openCreateOptionModal} disabled={!canManage || optionsBusy || !selectedGroupId} style={{ borderRadius: 12, border: "1px solid #0f172a", background: "#0f172a", color: "#fff", padding: "9px 14px", fontWeight: 700, fontSize: 13, boxShadow: "0 8px 20px rgba(15, 23, 42, 0.18)", cursor: !canManage || optionsBusy || !selectedGroupId ? "not-allowed" : "pointer", opacity: !canManage || optionsBusy || !selectedGroupId ? 0.6 : 1 }}>
               + Opcion
             </button>
           </div>
@@ -653,13 +908,40 @@ export default function AdminModifiersPage() {
           ) : null}
 
           {loadingOptions ? <div>Cargando opciones...</div> : null}
-          {!loadingOptions && selectedGroupId && options.length === 0 ? <div>No hay opciones en este grupo.</div> : null}
-          {!loadingOptions && !selectedGroupId ? <div>Selecciona un grupo para ver opciones.</div> : null}
+          {!loadingOptions && selectedGroupId && options.length === 0 ? (
+            <div
+              style={{
+                border: "1px dashed #cbd5e1",
+                borderRadius: 12,
+                padding: 18,
+                background: "#f8fafc",
+                display: "grid",
+                gap: 6,
+              }}
+            >
+              <div style={{ fontSize: 14, fontWeight: 700, color: "#0f172a" }}>No hay opciones en este grupo</div>
+              <div style={{ fontSize: 13, color: "#64748b" }}>Crea la primera opcion para este grupo desde el boton superior.</div>
+            </div>
+          ) : null}
+          {!loadingOptions && !selectedGroupId ? (
+            <div
+              style={{
+                border: "1px dashed #cbd5e1",
+                borderRadius: 12,
+                padding: 18,
+                background: "#f8fafc",
+                color: "#64748b",
+                fontSize: 13,
+              }}
+            >
+              Selecciona un grupo para ver opciones.
+            </div>
+          ) : null}
 
           {!loadingOptions && selectedGroupId && options.length > 0 ? (
             <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onOptionsDragEnd}>
               <SortableContext items={optionIds} strategy={verticalListSortingStrategy}>
-                <div style={{ display: "grid", gap: 10 }}>
+                <div style={{ display: "grid", gap: 12 }}>
                   {options.map((option) => (
                     <SortableOptionCard
                       key={option.id}

@@ -35,7 +35,7 @@ npx tsc --noEmit # type-check sin compilar
 **Acceso directo a Supabase (Management API):**
 ```bash
 curl -s -X POST "https://api.supabase.com/v1/projects/ewxarutpvgelwdswjolz/database/query" \
-  -H "Authorization: Bearer sbp_0bf9a5e004d8e84089816fb4dfe1b081cd0c3259" \
+  -H "Authorization: Bearer sbp_a0ba96f60525f84e0903c069f1be42d227e367bd" \
   -H "Content-Type: application/json" \
   -d '{"query": "SELECT 1"}'
 ```

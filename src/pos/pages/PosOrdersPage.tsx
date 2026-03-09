@@ -1,6 +1,6 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 
 import { useOrderRinger } from "../../admin/hooks/useOrderRinger";
 import type { OrderStatus } from "../../constants/orderStatus";
@@ -9,23 +9,75 @@ import { useRestaurant } from "../../restaurant/RestaurantContext";
 import { usePosRealtimeCtx } from "../PosRealtimeContext";
 import type { PosRealtimeOrder } from "../PosRealtimeContext";
 import { usePosRole } from "../hooks/usePosRole";
-import { printPosTicket } from "../services/posPrintService";
+import { printKitchenTicket, printPosTicket } from "../services/posPrintService";
 import type { PosTicketData } from "../services/posPrintService";
 
-// ─── Types ────────────────────────────────────────────────────────────────────
+// â”€â”€â”€ Types â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 type PosOrderItem = PosRealtimeOrder["order_items"][number];
 type PosOrder = PosRealtimeOrder;
 
 type StatusFilter = OrderStatus | "all";
-type SourceFilter = "all" | "pos" | "web";
+type SourceFilter = "all" | "pos" | "web" | "qr_table";
 
 type CollectModal = {
   orderId: string;
   total: number;
 };
 
-// ─── Constants ────────────────────────────────────────────────────────────────
+type OrderDetailItemModifier = {
+  option_name: string | null;
+  price: number | null;
+};
+
+type OrderDetailItem = {
+  id: string;
+  product_id: string | null;
+  qty: number;
+  snapshot_name: string | null;
+  unit_price: number | null;
+  line_total: number | null;
+  notes: string | null;
+  order_item_modifier_options?: OrderDetailItemModifier[] | null;
+};
+
+type OrderDetail = {
+  id: string;
+  created_at: string | null;
+  status: OrderStatus | null;
+  order_type: string | null;
+  source: string | null;
+  total: number | null;
+  subtotal: number | null;
+  tip_amount: number | null;
+  delivery_fee: number | null;
+  customer_name: string | null;
+  customer_phone: string | null;
+  delivery_address: string | null;
+  payment_method: string | null;
+  payment_status: string | null;
+  notes: string | null;
+  table_id: string | null;
+  table_name: string | null;
+  order_items: OrderDetailItem[];
+};
+
+type PickerCategory = {
+  id: string;
+  name: string;
+  sort_order: number | null;
+};
+
+type PickerProduct = {
+  id: string;
+  name: string;
+  price: number;
+  category_id: string;
+};
+
+const PANEL_WIDTH = 380;
+
+// â”€â”€â”€ Constants â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const STATUS_TABS: Array<{ value: StatusFilter; label: string }> = [
   { value: "all", label: "Todos" },
@@ -72,7 +124,17 @@ const PAYMENT_LABELS: Record<string, string> = {
   card: "Tarjeta",
 };
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+const STATUS_ACTIONS: Array<{ value: OrderStatus; label: string }> = [
+  { value: "pending", label: "Pendiente" },
+  { value: "accepted", label: "Aceptado" },
+  { value: "preparing", label: "Preparando" },
+  { value: "ready", label: "Listo" },
+  { value: "out_for_delivery", label: "Reparto" },
+  { value: "delivered", label: "Entregado" },
+  { value: "cancelled", label: "Cancelado" },
+];
+
+// â”€â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function fmtEur(n: number | null | undefined): string {
   return new Intl.NumberFormat("es-ES", {
@@ -95,6 +157,45 @@ function fmtDate(): string {
     day: "numeric",
     month: "long",
   });
+}
+
+function fmtElapsedSince(iso: string | null | undefined): string {
+  if (!iso) return "hace -- min";
+  const minutes = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 60000));
+  if (minutes < 60) return `hace ${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  const rem = minutes % 60;
+  return `hace ${hours}h ${rem} min`;
+}
+
+function normalizePhone(phone: string | null | undefined): string {
+  return String(phone ?? "").replace(/[^\d+]/g, "");
+}
+
+function getDisplayOrderType(order: Pick<OrderDetail, "order_type" | "source" | "table_name">): string {
+  if (order.table_name) return order.table_name;
+  if (order.source === "qr_table") return "MESA QR";
+  if (order.source === "pos" && (order.order_type ?? "").toLowerCase() === "dine_in") return "MOSTRADOR";
+  return ORDER_TYPE_LABELS[order.order_type ?? ""] ?? (order.order_type?.toUpperCase() ?? "WEB");
+}
+
+function extractOrderNote(raw: string | null | undefined): string | null {
+  const text = String(raw ?? "").trim();
+  if (!text) return null;
+  if (!text.startsWith("{")) return text;
+  try {
+    const parsed = JSON.parse(text) as Record<string, unknown>;
+    const candidates = [
+      parsed.customer_note,
+      parsed.note,
+      parsed.notes,
+      parsed.instructions,
+    ];
+    const first = candidates.find((value) => typeof value === "string" && value.trim());
+    return typeof first === "string" ? first.trim() : null;
+  } catch {
+    return text;
+  }
 }
 
 function getNextStatus(status: OrderStatus | null): OrderStatus | null {
@@ -127,16 +228,18 @@ function isValidStatusFilter(v: string | null): v is StatusFilter {
 }
 
 function isValidSourceFilter(v: string | null): v is SourceFilter {
-  return v === "all" || v === "pos" || v === "web";
+  return v === "all" || v === "pos" || v === "web" || v === "qr_table";
 }
 
-// ─── Component ────────────────────────────────────────────────────────────────
+// â”€â”€â”€ Component â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export default function PosOrdersPage() {
-  const { restaurantId, name } = useRestaurant();
+  const { restaurantId, name, menuPath } = useRestaurant();
   const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
   const { role } = usePosRole();
   const isStaff = role === "staff";
+  const posBase = menuPath === "/" ? "/pos" : `${menuPath}/pos`;
 
   const {
     orders,
@@ -157,6 +260,15 @@ export default function PosOrdersPage() {
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [showCierreCaja, setShowCierreCaja] = useState(false);
+  const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
+  const [selectedDetail, setSelectedDetail] = useState<OrderDetail | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState<string | null>(null);
+  const [showAddProducts, setShowAddProducts] = useState(false);
+  const [addingProductId, setAddingProductId] = useState<string | null>(null);
+  const [windowWidth, setWindowWidth] = useState(() =>
+    typeof window !== "undefined" ? window.innerWidth : 1280
+  );
 
   // FIX 3: Collect payment modal state
   const [collectModal, setCollectModal] = useState<CollectModal | null>(null);
@@ -164,7 +276,7 @@ export default function PosOrdersPage() {
   const { soundEnabled, isRinging, pendingCount, enableSound, muteCycle } =
     useOrderRinger({ restaurantId: restaurantId ?? "", orders });
 
-  const updateStatus = useCallback(
+  const updateOrderStatus = useCallback(
     async (order: PosOrder, newStatus: OrderStatus) => {
       setUpdatingId(order.id);
       setErrorMsg(null);
@@ -187,6 +299,75 @@ export default function PosOrdersPage() {
     },
     [patchOrder]
   );
+
+  useEffect(() => {
+    const onResize = () => setWindowWidth(window.innerWidth);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
+  const isMobile = windowWidth < 900;
+  const panelOpen = Boolean(selectedOrderId);
+
+  const loadOrderDetail = useCallback(
+    async (orderId: string) => {
+      setDetailLoading(true);
+      setDetailError(null);
+
+      const { data, error } = await supabase
+        .from("orders")
+        .select(
+          "id, created_at, status, order_type, source, total, subtotal, tip_amount, delivery_fee, customer_name, customer_phone, delivery_address, payment_method, payment_status, notes, table_id, order_items(id, product_id, qty, snapshot_name, unit_price, line_total, notes, order_item_modifier_options(option_name, price))"
+        )
+        .eq("id", orderId)
+        .eq("restaurant_id", restaurantId)
+        .maybeSingle();
+
+      if (error || !data) {
+        setSelectedDetail(null);
+        setDetailError(error?.message ?? "No se pudo cargar el pedido.");
+        setDetailLoading(false);
+        return;
+      }
+
+      const row = data as unknown as Omit<OrderDetail, "table_name">;
+      let tableName: string | null = null;
+      if (row.table_id) {
+        const tableRes = await supabase
+          .from("restaurant_tables")
+          .select("name")
+          .eq("id", row.table_id)
+          .maybeSingle();
+        if (tableRes.data?.name) {
+          tableName = String((tableRes.data as { name: string }).name);
+        }
+      }
+
+      setSelectedDetail({
+        ...row,
+        table_name: tableName,
+        order_items: Array.isArray(row.order_items) ? row.order_items : [],
+      });
+      setDetailLoading(false);
+    },
+    [restaurantId]
+  );
+
+  useEffect(() => {
+    if (!selectedOrderId) {
+      setSelectedDetail(null);
+      setDetailError(null);
+      return;
+    }
+    void loadOrderDetail(selectedOrderId);
+  }, [loadOrderDetail, selectedOrderId]);
+
+  useEffect(() => {
+    if (!selectedOrderId) return;
+    const fromList = orders.find((order) => order.id === selectedOrderId);
+    if (!fromList) return;
+    setSelectedDetail((prev) => (prev ? { ...prev, status: fromList.status } : prev));
+  }, [orders, selectedOrderId]);
 
   const handleReprint = useCallback(
     async (order: PosOrder) => {
@@ -233,6 +414,37 @@ export default function PosOrdersPage() {
     [name]
   );
 
+  const handleReprintKitchen = useCallback(
+    async (order: PosOrder) => {
+      try {
+        const ticketData: PosTicketData = {
+          orderId: order.id,
+          createdAt: order.created_at,
+          restaurantName: name ?? "Restaurante",
+          orderType: order.order_type,
+          customerName: order.customer_name,
+          paymentMethod: order.payment_method,
+          cashGiven: null,
+          changeDue: null,
+          subtotal: order.total ?? 0,
+          deliveryFee: 0,
+          total: order.total ?? 0,
+          items: order.order_items.map((item) => ({
+            qty: item.qty,
+            name: item.snapshot_name ?? "Producto",
+            unitPrice: item.unit_price ?? 0,
+          })),
+        };
+        await printKitchenTicket(ticketData);
+      } catch (err) {
+        setErrorMsg(
+          String((err as { message?: unknown })?.message ?? "Error al imprimir cocina")
+        );
+      }
+    },
+    [name]
+  );
+
   // FIX 3: Collect payment handler
   const handleCollectPayment = useCallback(
     async (orderId: string, method: "cash" | "card") => {
@@ -255,6 +467,102 @@ export default function PosOrdersPage() {
     [restaurantId, patchOrder]
   );
 
+  const handleAddProductToOrder = useCallback(
+    async (product: PickerProduct) => {
+      if (!selectedOrderId || !restaurantId || !selectedDetail) return;
+      setAddingProductId(product.id);
+      setErrorMsg(null);
+
+      const { data: inserted, error: insertErr } = await supabase
+        .from("order_items")
+        .insert({
+          order_id: selectedOrderId,
+          restaurant_id: restaurantId,
+          product_id: product.id,
+          qty: 1,
+          base_price: product.price,
+          extras_total: 0,
+          final_unit_price: product.price,
+          unit_price: product.price,
+          line_total: product.price,
+          snapshot_name: product.name,
+          notes: null,
+          sent_to_kitchen: false,
+        })
+        .select("id, product_id, qty, snapshot_name, unit_price, line_total, notes")
+        .single();
+
+      if (insertErr || !inserted) {
+        setErrorMsg(String(insertErr?.message ?? "No se pudo aÃ±adir el producto."));
+        setAddingProductId(null);
+        return;
+      }
+
+      const { data: totalsRows } = await supabase
+        .from("order_items")
+        .select("line_total")
+        .eq("order_id", selectedOrderId);
+      const subtotal = (totalsRows ?? []).reduce(
+        (sum, row) => sum + Number((row as { line_total?: number | null }).line_total ?? 0),
+        0
+      );
+      const total = subtotal + (selectedDetail.tip_amount ?? 0) + (selectedDetail.delivery_fee ?? 0);
+
+      const { error: updateErr } = await supabase
+        .from("orders")
+        .update({ subtotal, total })
+        .eq("id", selectedOrderId)
+        .eq("restaurant_id", restaurantId);
+
+      if (updateErr) {
+        setErrorMsg(String(updateErr.message ?? "No se pudo recalcular total."));
+        setAddingProductId(null);
+        return;
+      }
+
+      const detailItem: OrderDetailItem = {
+        id: String((inserted as { id: string }).id),
+        product_id: String((inserted as { product_id: string | null }).product_id ?? ""),
+        qty: Number((inserted as { qty: number }).qty),
+        snapshot_name: String((inserted as { snapshot_name: string | null }).snapshot_name ?? "Producto"),
+        unit_price: Number((inserted as { unit_price: number | null }).unit_price ?? product.price),
+        line_total: Number((inserted as { line_total: number | null }).line_total ?? product.price),
+        notes: null,
+        order_item_modifier_options: [],
+      };
+
+      setSelectedDetail((prev) =>
+        prev
+          ? {
+              ...prev,
+              subtotal,
+              total,
+              order_items: [...prev.order_items, detailItem],
+            }
+          : prev
+      );
+
+      const liveOrder = orders.find((order) => order.id === selectedOrderId);
+      patchOrder(selectedOrderId, {
+        total,
+        order_items: [
+          ...(liveOrder?.order_items ?? []),
+          {
+            id: detailItem.id,
+            qty: detailItem.qty,
+            snapshot_name: detailItem.snapshot_name,
+            unit_price: detailItem.unit_price,
+            line_total: detailItem.line_total,
+          },
+        ],
+      });
+
+      setAddingProductId(null);
+      setShowAddProducts(false);
+    },
+    [orders, patchOrder, restaurantId, selectedDetail, selectedOrderId]
+  );
+
   const filteredOrders = useMemo(() => {
     let list = orders;
     if (statusFilter !== "all") {
@@ -262,8 +570,10 @@ export default function PosOrdersPage() {
     }
     if (sourceFilter === "pos") {
       list = list.filter((o) => o.source === "pos");
+    } else if (sourceFilter === "qr_table") {
+      list = list.filter((o) => o.source === "qr_table");
     } else if (sourceFilter === "web") {
-      list = list.filter((o) => o.source !== "pos");
+      list = list.filter((o) => o.source !== "pos" && o.source !== "qr_table");
     }
     return list;
   }, [orders, statusFilter, sourceFilter]);
@@ -289,11 +599,11 @@ export default function PosOrdersPage() {
     [activeOrders]
   );
 
-  // ─────────────────────────────────────────────────────────────────────────
+  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   return (
     <div style={s.root}>
 
-      {/* ═══════════════ HEADER ═══════════════ */}
+      {/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• HEADER â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */}
       <div style={s.header}>
         <div style={s.headerLeft}>
           <h1 style={s.headerTitle}>Pedidos de hoy</h1>
@@ -331,7 +641,7 @@ export default function PosOrdersPage() {
         </div>
       </div>
 
-      {/* ═══════════════ FILTER BAR ═══════════════ */}
+      {/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• FILTER BAR â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */}
       <div style={s.filterBar}>
         <div style={s.tabRow}>
           {STATUS_TABS.map((tab) => {
@@ -357,14 +667,14 @@ export default function PosOrdersPage() {
 
         <div style={s.pillRow}>
           <div style={s.pillGroup}>
-            {(["all", "pos", "web"] as const).map((src) => (
+            {(["all", "pos", "qr_table", "web"] as const).map((src) => (
               <button
                 key={src}
                 type="button"
                 style={sourceFilter === src ? s.pillActive : s.pill}
                 onClick={() => setSourceFilter(src)}
               >
-                {src === "all" ? "Todos" : src.toUpperCase()}
+                {src === "all" ? "Todos" : src === "qr_table" ? "Mesa QR" : src.toUpperCase()}
               </button>
             ))}
           </div>
@@ -372,20 +682,20 @@ export default function PosOrdersPage() {
           <div style={s.soundArea}>
             {!soundEnabled ? (
               <button type="button" style={s.soundBtn} onClick={() => void enableSound()}>
-                🔔 Activar alertas
+                ðŸ”” Activar alertas
               </button>
             ) : isRinging ? (
               <button type="button" style={s.muteBtn} onClick={muteCycle}>
-                🔔 Silenciar · {pendingCount} pendiente{pendingCount !== 1 ? "s" : ""}
+                ðŸ”” Silenciar Â· {pendingCount} pendiente{pendingCount !== 1 ? "s" : ""}
               </button>
             ) : (
-              <span style={s.soundOn}>🔔 Alertas activas</span>
+              <span style={s.soundOn}>ðŸ”” Alertas activas</span>
             )}
           </div>
         </div>
       </div>
 
-      {/* ═══════════════ ERROR BANNER ═══════════════ */}
+      {/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• ERROR BANNER â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */}
       {errorMsg && (
         <div style={s.errorBar}>
           <span>{errorMsg}</span>
@@ -394,39 +704,99 @@ export default function PosOrdersPage() {
             style={s.errorClose}
             onClick={() => setErrorMsg(null)}
           >
-            ×
+            Ã—
           </button>
         </div>
       )}
 
-      {/* ═══════════════ ORDERS ═══════════════ */}
+      {/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• ORDERS â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */}
       <div style={s.content}>
-        {loading ? (
-          <div style={s.centered}>Cargando pedidos...</div>
-        ) : filteredOrders.length === 0 ? (
-          <div style={s.centered}>
-            {orders.length === 0
-              ? "No hay pedidos hoy todavía"
-              : "No hay pedidos con estos filtros"}
-          </div>
-        ) : (
-          <div style={s.grid}>
-            {filteredOrders.map((order) => (
-              <OrderCard
-                key={order.id}
-                order={order}
-                isNew={newWebOrderIds.has(order.id)}
-                isUpdating={updatingId === order.id}
-                onAdvance={(ns) => void updateStatus(order, ns)}
-                onReprint={() => void handleReprint(order)}
-                onCollect={() => setCollectModal({ orderId: order.id, total: order.total ?? 0 })}
-              />
-            ))}
-          </div>
-        )}
-      </div>
+        <div style={{ ...s.ordersPane, paddingRight: !isMobile && panelOpen ? PANEL_WIDTH + 16 : 0 }}>
+          {loading ? (
+            <div style={s.centered}>Cargando pedidos...</div>
+          ) : filteredOrders.length === 0 ? (
+            <div style={s.centered}>
+              {orders.length === 0
+                ? "No hay pedidos hoy todavÃ­a"
+                : "No hay pedidos con estos filtros"}
+            </div>
+          ) : (
+            <div style={s.grid}>
+              {filteredOrders.map((order) => (
+                <OrderCard
+                  key={order.id}
+                  order={order}
+                  isNew={newWebOrderIds.has(order.id)}
+                  isUpdating={updatingId === order.id}
+                  onAdvance={(ns) => void updateOrderStatus(order, ns)}
+                  onReprint={() => void handleReprint(order)}
+                  onReprintKitchen={() => void handleReprintKitchen(order)}
+                  onCollect={() => setCollectModal({ orderId: order.id, total: order.total ?? 0 })}
+                  onOpenDetail={() => setSelectedOrderId(order.id)}
+                />
+              ))}
+            </div>
+          )}
+        </div>
 
-      {/* ═══════════════ CERRAR CAJA MODAL ═══════════════ */}
+        {panelOpen && (
+          <div
+            style={isMobile ? s.mobilePanelBackdrop : s.panelBackdrop}
+            onClick={() => {
+              setSelectedOrderId(null);
+              setShowAddProducts(false);
+            }}
+          />
+        )}
+
+        <aside
+          style={{
+            ...(isMobile ? s.mobilePanel : s.detailPanel),
+            transform: panelOpen ? "translateX(0)" : "translateX(100%)",
+          }}
+        >
+          <OrderDetailPanel
+            detail={selectedDetail}
+            loading={detailLoading}
+            error={detailError}
+            updatingId={updatingId}
+            onClose={() => {
+              setSelectedOrderId(null);
+              setShowAddProducts(false);
+            }}
+            onStatusChange={(status) => {
+              if (!selectedDetail) return;
+              const sourceOrder = orders.find((item) => item.id === selectedDetail.id);
+              if (!sourceOrder) return;
+              void updateOrderStatus(sourceOrder, status);
+            }}
+            onReprint={() => {
+              if (!selectedDetail) return;
+              const sourceOrder = orders.find((item) => item.id === selectedDetail.id);
+              if (!sourceOrder) return;
+              void handleReprint(sourceOrder);
+            }}
+            onKitchen={() => {
+              if (!selectedDetail) return;
+              const sourceOrder = orders.find((item) => item.id === selectedDetail.id);
+              if (!sourceOrder) return;
+              void handleReprintKitchen(sourceOrder);
+            }}
+            onGoTable={() => {
+              if (!selectedDetail?.table_id) return;
+              navigate(`${posBase}/tables/${selectedDetail.table_id}`);
+            }}
+            onAcceptNow={() => {
+              if (!selectedDetail) return;
+              const sourceOrder = orders.find((item) => item.id === selectedDetail.id);
+              if (!sourceOrder) return;
+              void updateOrderStatus(sourceOrder, "accepted");
+            }}
+            onOpenAddProducts={() => setShowAddProducts(true)}
+          />
+        </aside>
+      </div>
+      {/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• CERRAR CAJA MODAL â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */}
       {showCierreCaja && (
         <CierreCajaModal
           orders={orders}
@@ -435,7 +805,7 @@ export default function PosOrdersPage() {
         />
       )}
 
-      {/* ═══════════════ FIX 3: COBRAR AHORA MODAL ═══════════════ */}
+      {/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• FIX 3: COBRAR AHORA MODAL â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */}
       {collectModal && (
         <CollectPaymentModal
           orderId={collectModal.orderId}
@@ -444,11 +814,324 @@ export default function PosOrdersPage() {
           onClose={() => setCollectModal(null)}
         />
       )}
+      {showAddProducts && selectedDetail && selectedDetail.status !== "delivered" && selectedDetail.status !== "cancelled" && (
+        <AddProductsModal
+          restaurantId={restaurantId ?? ""}
+          addingProductId={addingProductId}
+          onAdd={handleAddProductToOrder}
+          onClose={() => setShowAddProducts(false)}
+        />
+      )}
     </div>
   );
 }
 
-// ─── FIX 3: Collect Payment Modal ─────────────────────────────────────────────
+
+type OrderDetailPanelProps = {
+  detail: OrderDetail | null;
+  loading: boolean;
+  error: string | null;
+  updatingId: string | null;
+  onClose: () => void;
+  onStatusChange: (status: OrderStatus) => void;
+  onReprint: () => void;
+  onKitchen: () => void;
+  onGoTable: () => void;
+  onAcceptNow: () => void;
+  onOpenAddProducts: () => void;
+};
+
+function OrderDetailPanel({
+  detail,
+  loading,
+  error,
+  updatingId,
+  onClose,
+  onStatusChange,
+  onReprint,
+  onKitchen,
+  onGoTable,
+  onAcceptNow,
+  onOpenAddProducts,
+}: OrderDetailPanelProps) {
+  const [elapsedLabel, setElapsedLabel] = useState("hace -- min");
+
+  useEffect(() => {
+    if (!detail?.created_at) return;
+    const update = () => setElapsedLabel(fmtElapsedSince(detail.created_at));
+    update();
+    const id = window.setInterval(update, 60_000);
+    return () => window.clearInterval(id);
+  }, [detail?.created_at]);
+
+  if (loading) {
+    return <div style={dp.loading}>Cargando detalle...</div>;
+  }
+  if (error) {
+    return <div style={dp.error}>{error}</div>;
+  }
+  if (!detail) {
+    return <div style={dp.empty}>Selecciona un pedido</div>;
+  }
+
+  const phone = normalizePhone(detail.customer_phone);
+  const isPending = detail.status === "pending";
+  const isClosed = detail.status === "delivered" || detail.status === "cancelled";
+  const note = extractOrderNote(detail.notes);
+  const subtotal =
+    detail.subtotal ??
+    detail.order_items.reduce((sum, item) => sum + (item.line_total ?? (item.unit_price ?? 0) * item.qty), 0);
+  const tip = detail.tip_amount ?? 0;
+  const deliveryFee = detail.delivery_fee ?? 0;
+  const total = detail.total ?? subtotal + tip + deliveryFee;
+  const canGoTable = Boolean(detail.table_id);
+  const typeBadge = getDisplayOrderType(detail);
+  const sourceBadge =
+    detail.source === "pos" ? "POS" : detail.source === "qr_table" ? "QR" : "WEB";
+  const sourceBadgeStyle =
+    detail.source === "pos"
+      ? dp.sourcePos
+      : detail.source === "qr_table"
+        ? dp.sourceQr
+        : dp.sourceWeb;
+
+  return (
+    <div style={dp.root}>
+      <div style={dp.head}>
+        <div style={{ minWidth: 0 }}>
+          <div style={dp.orderNumber}>#{detail.id.slice(-6).toUpperCase()}</div>
+          <div style={dp.badges}>
+            <span style={dp.typeBadge}>{typeBadge}</span>
+            <span style={sourceBadgeStyle}>{sourceBadge}</span>
+          </div>
+          <div style={dp.elapsed}>{elapsedLabel}</div>
+        </div>
+        <button type="button" style={dp.close} onClick={onClose}>
+          X
+        </button>
+      </div>
+
+      <div style={dp.body}>
+        <section style={dp.section}>
+          <div style={dp.sectionTitle}>Estado</div>
+          <div style={dp.statusGrid}>
+            {STATUS_ACTIONS.map((entry) => {
+              const active = detail.status === entry.value;
+              const disabled = updatingId === detail.id;
+              return (
+                <button
+                  key={entry.value}
+                  type="button"
+                  disabled={disabled}
+                  onClick={() => onStatusChange(entry.value)}
+                  style={{
+                    ...dp.statusBtn,
+                    ...(active ? dp.statusBtnActive : {}),
+                    ...(disabled ? dp.statusBtnDisabled : {}),
+                  }}
+                >
+                  {entry.label}
+                </button>
+              );
+            })}
+          </div>
+        </section>
+
+        <section style={dp.section}>
+          <div style={dp.sectionTitle}>Productos</div>
+          <div style={dp.itemsList}>
+            {detail.order_items.map((item) => {
+              const lineTotal = item.line_total ?? (item.unit_price ?? 0) * item.qty;
+              return (
+                <div key={item.id} style={dp.itemCard}>
+                  <div style={dp.itemTop}>
+                    <span style={dp.itemName}>
+                      {item.qty}x {item.snapshot_name ?? "Producto"}
+                    </span>
+                    <span style={dp.itemTotal}>{fmtEur(lineTotal)}</span>
+                  </div>
+                  <div style={dp.itemSub}>
+                    <span>{fmtEur(item.unit_price ?? 0)} / ud</span>
+                  </div>
+                  {item.order_item_modifier_options && item.order_item_modifier_options.length > 0 && (
+                    <div style={dp.itemMods}>
+                      {item.order_item_modifier_options
+                        .map((mod) => mod.option_name)
+                        .filter(Boolean)
+                        .join(", ")}
+                    </div>
+                  )}
+                  {item.notes ? <div style={dp.itemMods}>Nota: {item.notes}</div> : null}
+                </div>
+              );
+            })}
+          </div>
+          <div style={dp.totals}>
+            <div style={dp.totalRow}><span>Subtotal</span><strong>{fmtEur(subtotal)}</strong></div>
+            {tip > 0 && <div style={dp.totalRow}><span>Propina</span><strong>{fmtEur(tip)}</strong></div>}
+            {deliveryFee > 0 && <div style={dp.totalRow}><span>Entrega</span><strong>{fmtEur(deliveryFee)}</strong></div>}
+            <div style={dp.totalRowMain}><span>TOTAL</span><strong>{fmtEur(total)}</strong></div>
+          </div>
+        </section>
+
+        <section style={dp.section}>
+          <div style={dp.sectionTitle}>Cliente</div>
+          <div style={dp.infoRow}><span>Nombre</span><strong>{detail.customer_name || "Sin nombre"}</strong></div>
+          <div style={dp.infoRow}>
+            <span>Teléfono</span>
+            {phone ? (
+              <div style={{ display: "flex", gap: 8 }}>
+                <a href={`tel:${phone}`} style={dp.infoLink}>{phone}</a>
+                <a href={`https://wa.me/${phone.replace(/^\+/, "")}`} target="_blank" rel="noreferrer" style={dp.infoLink}>WhatsApp</a>
+              </div>
+            ) : (
+              <strong>-</strong>
+            )}
+          </div>
+          <div style={dp.infoRow}><span>Tipo</span><strong>{getDisplayOrderType(detail)}</strong></div>
+          {detail.order_type === "delivery" ? (
+            <div style={dp.infoRow}><span>Dirección</span><strong>{detail.delivery_address || "-"}</strong></div>
+          ) : null}
+          <div style={dp.infoRow}>
+            <span>Pago</span>
+            <strong>
+              {PAYMENT_LABELS[detail.payment_method ?? ""] ?? detail.payment_method ?? "-"} · {detail.payment_status ?? "pendiente"}
+            </strong>
+          </div>
+          {note ? <div style={dp.note}>{note}</div> : null}
+        </section>
+      </div>
+
+      <div style={dp.footer}>
+        {!isClosed && (
+          <button type="button" style={dp.addProductsBtn} onClick={onOpenAddProducts}>
+            + Añadir productos
+          </button>
+        )}
+        <button type="button" style={dp.actionBtn} onClick={onReprint}>
+          Reimprimir ticket
+        </button>
+        <button type="button" style={dp.actionBtn} onClick={onKitchen}>
+          Ticket cocina
+        </button>
+        {canGoTable && (
+          <button type="button" style={dp.actionBtn} onClick={onGoTable}>
+            Ir a mesa {"->"}
+          </button>
+        )}
+        {isPending && (
+          <button type="button" style={dp.acceptBtn} disabled={updatingId === detail.id} onClick={onAcceptNow}>
+            Aceptar pedido
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+type AddProductsModalProps = {
+  restaurantId: string;
+  addingProductId: string | null;
+  onAdd: (product: PickerProduct) => Promise<void>;
+  onClose: () => void;
+};
+
+function AddProductsModal({ restaurantId, addingProductId, onAdd, onClose }: AddProductsModalProps) {
+  const [categories, setCategories] = useState<PickerCategory[]>([]);
+  const [products, setProducts] = useState<PickerProduct[]>([]);
+  const [activeCat, setActiveCat] = useState<string | "all">("all");
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let alive = true;
+    const load = async () => {
+      setLoading(true);
+      const [cats, prods] = await Promise.all([
+        supabase
+          .from("categories")
+          .select("id, name, sort_order")
+          .eq("restaurant_id", restaurantId)
+          .eq("is_active", true)
+          .order("sort_order", { ascending: true }),
+        supabase
+          .from("products")
+          .select("id, name, price, category_id")
+          .eq("restaurant_id", restaurantId)
+          .eq("is_active", true)
+          .order("sort_order", { ascending: true }),
+      ]);
+      if (!alive) return;
+      setCategories((cats.data ?? []) as PickerCategory[]);
+      setProducts(
+        ((prods.data ?? []) as Array<Record<string, unknown>>).map((row) => ({
+          id: String(row.id ?? ""),
+          name: String(row.name ?? "Producto"),
+          price: Number(row.price ?? 0),
+          category_id: String(row.category_id ?? ""),
+        }))
+      );
+      setLoading(false);
+    };
+    void load();
+    return () => {
+      alive = false;
+    };
+  }, [restaurantId]);
+
+  const visible = useMemo(
+    () => (activeCat === "all" ? products : products.filter((product) => product.category_id === activeCat)),
+    [activeCat, products]
+  );
+
+  return (
+    <div style={apm.overlay} onClick={onClose}>
+      <div style={apm.modal} onClick={(event) => event.stopPropagation()}>
+        <div style={apm.head}>
+          <h3 style={apm.title}>Añadir productos</h3>
+          <button type="button" style={apm.close} onClick={onClose}>X</button>
+        </div>
+        <div style={apm.catRow}>
+          <button type="button" style={activeCat === "all" ? apm.catActive : apm.cat} onClick={() => setActiveCat("all")}>
+            Todos
+          </button>
+          {categories.map((cat) => (
+            <button
+              key={cat.id}
+              type="button"
+              style={activeCat === cat.id ? apm.catActive : apm.cat}
+              onClick={() => setActiveCat(cat.id)}
+            >
+              {cat.name}
+            </button>
+          ))}
+        </div>
+        <div style={apm.grid}>
+          {loading ? (
+            <div style={apm.centered}>Cargando...</div>
+          ) : visible.length === 0 ? (
+            <div style={apm.centered}>No hay productos</div>
+          ) : (
+            visible.map((product) => (
+              <button
+                key={product.id}
+                type="button"
+                disabled={addingProductId === product.id}
+                style={apm.productBtn}
+                onClick={() => void onAdd(product)}
+              >
+                <span style={apm.productName}>{product.name}</span>
+                <span style={apm.productPrice}>
+                  {addingProductId === product.id ? "Añadiendo..." : fmtEur(product.price)}
+                </span>
+              </button>
+            ))
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+// â”€â”€â”€ FIX 3: Collect Payment Modal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 type CollectPaymentModalProps = {
   orderId: string;
@@ -498,11 +1181,11 @@ function CollectPaymentModal({ orderId, total, onConfirm, onClose }: CollectPaym
       >
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <h2 style={{ margin: 0, fontSize: 17, fontWeight: 800 }}>
-            💰 Cobrar pedido #{shortId}
+            ðŸ’° Cobrar pedido #{shortId}
           </h2>
           <button type="button" onClick={onClose}
             style={{ border: "none", background: "transparent", color: MUTED, fontSize: 22, cursor: "pointer" }}>
-            ×
+            Ã—
           </button>
         </div>
 
@@ -549,7 +1232,7 @@ function CollectPaymentModal({ orderId, total, onConfirm, onClose }: CollectPaym
               type="number"
               min={0}
               step="0.01"
-              placeholder="0.00 €"
+              placeholder="0.00 â‚¬"
               value={cashGiven}
               onChange={(e) => setCashGiven(e.target.value)}
               style={{
@@ -599,7 +1282,7 @@ function CollectPaymentModal({ orderId, total, onConfirm, onClose }: CollectPaym
   );
 }
 
-// ─── Cerrar Caja Modal ────────────────────────────────────────────────────────
+// â”€â”€â”€ Cerrar Caja Modal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 type CierreCajaModalProps = {
   orders: PosOrder[];
@@ -678,7 +1361,7 @@ function CierreCajaModal({ orders, restaurantId, onClose }: CierreCajaModalProps
   const handlePrint = () => {
     const rows = (Object.entries(revenueByPayment) as [string, number][])
       .map(([pm, amt]) =>
-        `<tr><td>${PAYMENT_LABEL_MAP[pm] ?? pm}</td><td style="text-align:right">${amt.toFixed(2)}€</td></tr>`
+        `<tr><td>${PAYMENT_LABEL_MAP[pm] ?? pm}</td><td style="text-align:right">${amt.toFixed(2)}â‚¬</td></tr>`
       )
       .join("");
 
@@ -689,12 +1372,12 @@ function CierreCajaModal({ orders, restaurantId, onClose }: CierreCajaModalProps
     const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Cierre de caja</title>
       <style>body{font-family:monospace;font-size:13px;padding:16px}h2{margin:0 0 12px}table{width:100%;border-collapse:collapse}td{padding:4px 0}hr{border:1px dashed #000;margin:8px 0}</style>
       </head><body>
-      <h2>Cierre de caja — ${new Date().toLocaleDateString("es-ES")}</h2>
+      <h2>Cierre de caja â€” ${new Date().toLocaleDateString("es-ES")}</h2>
       <hr><b>Pedidos por origen</b><table>
       <tr><td>TPV</td><td style="text-align:right">${posOrders.length}</td></tr>
       <tr><td>Web</td><td style="text-align:right">${webOrders.length}</td></tr>
-      </table><hr><b>Ingresos por método de pago</b><table>${rows}</table>
-      <hr><b>Total: ${totalRevenue.toFixed(2)}€</b>
+      </table><hr><b>Ingresos por mÃ©todo de pago</b><table>${rows}</table>
+      <hr><b>Total: ${totalRevenue.toFixed(2)}â‚¬</b>
       <hr><b>Pedidos por estado</b><table>${statusRows}</table>
       </body></html>`;
 
@@ -730,7 +1413,7 @@ function CierreCajaModal({ orders, restaurantId, onClose }: CierreCajaModalProps
           <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800 }}>Cierre de caja</h2>
           <button type="button" onClick={onClose}
             style={{ border: "none", background: "transparent", color: MUTED, fontSize: 22, cursor: "pointer", lineHeight: 1 }}>
-            ×
+            Ã—
           </button>
         </div>
 
@@ -756,13 +1439,13 @@ function CierreCajaModal({ orders, restaurantId, onClose }: CierreCajaModalProps
         <Section title="Arqueo de caja">
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
             <div>
-              <div style={{ fontSize: 11, color: MUTED, marginBottom: 4 }}>Efectivo contado (€)</div>
+              <div style={{ fontSize: 11, color: MUTED, marginBottom: 4 }}>Efectivo contado (â‚¬)</div>
               <input type="number" min="0" step="0.01" value={countedCash}
                 onChange={(e) => { setCountedCash(e.target.value); }}
                 placeholder="0.00" style={inputSt} />
             </div>
             <div>
-              <div style={{ fontSize: 11, color: MUTED, marginBottom: 4 }}>Tarjeta contada (€)</div>
+              <div style={{ fontSize: 11, color: MUTED, marginBottom: 4 }}>Tarjeta contada (â‚¬)</div>
               <input type="number" min="0" step="0.01" value={countedCard}
                 onChange={(e) => { setCountedCard(e.target.value); }}
                 placeholder="0.00" style={inputSt} />
@@ -833,7 +1516,42 @@ function Row({ label, value, bold }: { label: string; value: string; bold?: bool
   );
 }
 
-// ─── Order Card ───────────────────────────────────────────────────────────────
+// â”€â”€â”€ Elapsed timer â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+const ACTIVE_STATUSES: Set<string> = new Set(["pending", "accepted", "preparing", "ready", "out_for_delivery"]);
+
+function ElapsedTimer({ since, status }: { since: string | null | undefined; status: string | null | undefined }) {
+  const [label, setLabel] = useState("");
+
+  useEffect(() => {
+    if (!since || !status || !ACTIVE_STATUSES.has(status)) return;
+    const calc = () => {
+      const s = Math.max(0, Math.floor((Date.now() - new Date(since).getTime()) / 1000));
+      const h = Math.floor(s / 3600);
+      const m = Math.floor((s % 3600) / 60);
+      const sec = s % 60;
+      setLabel(h > 0
+        ? `${h}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`
+        : `${m}:${String(sec).padStart(2, "0")}`);
+    };
+    calc();
+    const id = setInterval(calc, 1000);
+    return () => clearInterval(id);
+  }, [since, status]);
+
+  if (!label) return null;
+
+  const mins = since ? Math.floor((Date.now() - new Date(since).getTime()) / 60000) : 0;
+  const color = mins >= 15 ? "#f87171" : mins >= 5 ? "#fb923c" : "#94a3b8";
+
+  return (
+    <span style={{ fontSize: 12, fontWeight: 700, color, letterSpacing: "0.01em", fontVariantNumeric: "tabular-nums" }}>
+      â± {label}
+    </span>
+  );
+}
+
+// â”€â”€â”€ Order Card â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 type OrderCardProps = {
   order: PosOrder;
@@ -841,10 +1559,12 @@ type OrderCardProps = {
   isUpdating: boolean;
   onAdvance: (newStatus: OrderStatus) => void;
   onReprint: () => void;
+  onReprintKitchen: () => void;
   onCollect: () => void;
+  onOpenDetail: () => void;
 };
 
-function OrderCard({ order, isNew, isUpdating, onAdvance, onReprint, onCollect }: OrderCardProps) {
+function OrderCard({ order, isNew, isUpdating, onAdvance, onReprint, onReprintKitchen, onCollect, onOpenDetail }: OrderCardProps) {
   const status = order.status;
   const chip = status ? STATUS_CHIP[status] : { bg: "rgba(100,116,139,0.12)", color: "#94a3b8" };
   const nextStatus = getNextStatus(status);
@@ -852,11 +1572,12 @@ function OrderCard({ order, isNew, isUpdating, onAdvance, onReprint, onCollect }
 
   const orderTypeLabel =
     ORDER_TYPE_LABELS[order.order_type ?? ""] ??
-    (order.order_type?.toUpperCase() ?? "—");
+    (order.order_type?.toUpperCase() ?? "â€”");
 
   const isPos = order.source === "pos";
+  const isQrTable = order.source === "qr_table";
   const paymentLabel =
-    PAYMENT_LABELS[order.payment_method ?? ""] ?? order.payment_method ?? "—";
+    PAYMENT_LABELS[order.payment_method ?? ""] ?? order.payment_method ?? "â€”";
 
   // FIX 3: fiado = payment_status is 'pending' and order is not cancelled
   const isFiado = order.payment_status === "pending" && order.status !== "cancelled";
@@ -873,19 +1594,31 @@ function OrderCard({ order, isNew, isUpdating, onAdvance, onReprint, onCollect }
   };
 
   return (
-    <div style={cardStyle}>
+    <div
+      role="button"
+      tabIndex={0}
+      style={cardStyle}
+      onClick={onOpenDetail}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onOpenDetail();
+        }
+      }}
+    >
 
       {/* Top row: time, badges, total */}
       <div style={c.topRow}>
         <div style={c.badges}>
           <span style={c.time}>{fmtTime(order.created_at)}</span>
-          <span style={isPos ? c.badgePos : c.badgeWeb}>
-            {isPos ? "POS" : "WEB"}
+          <ElapsedTimer since={order.created_at} status={status} />
+          <span style={isPos ? c.badgePos : isQrTable ? c.badgeQr : c.badgeWeb}>
+            {isPos ? "POS" : isQrTable ? "QR" : "WEB"}
           </span>
           <span style={c.badgeType}>{orderTypeLabel}</span>
           {isNew && <span style={c.badgeNew}>NUEVO</span>}
           {/* FIX 3: Fiado badge */}
-          {isFiado && <span style={c.badgeFiado}>💰 FIADO</span>}
+          {isFiado && <span style={c.badgeFiado}>ðŸ’° FIADO</span>}
         </div>
         <span style={c.total}>{fmtEur(order.total)}</span>
       </div>
@@ -898,11 +1631,11 @@ function OrderCard({ order, isNew, isUpdating, onAdvance, onReprint, onCollect }
       {/* Items */}
       <div style={c.itemsList}>
         {order.order_items.length === 0 ? (
-          <span style={c.noItems}>Sin artículos</span>
+          <span style={c.noItems}>Sin artÃ­culos</span>
         ) : (
           order.order_items.map((item: PosOrderItem) => (
             <div key={item.id} style={c.itemRow}>
-              <span style={c.itemQty}>{item.qty}×</span>
+              <span style={c.itemQty}>{item.qty}Ã—</span>
               <span style={c.itemName}>{item.snapshot_name ?? "Producto"}</span>
             </div>
           ))
@@ -919,7 +1652,7 @@ function OrderCard({ order, isNew, isUpdating, onAdvance, onReprint, onCollect }
             color: chip.color,
           }}
         >
-          {status ? STATUS_LABELS[status] : "—"}
+          {status ? STATUS_LABELS[status] : "â€”"}
         </span>
       </div>
 
@@ -950,16 +1683,30 @@ function OrderCard({ order, isNew, isUpdating, onAdvance, onReprint, onCollect }
         <button
           type="button"
           style={c.reprintBtn}
-          onClick={onReprint}
+          onClick={(event) => {
+            event.stopPropagation();
+            onReprint();
+          }}
         >
           Reimprimir
+        </button>
+        <button
+          type="button"
+          title="Comanda cocina"
+          style={c.reprintBtn}
+          onClick={(event) => {
+            event.stopPropagation();
+            onReprintKitchen();
+          }}
+        >
+          Cocina
         </button>
       </div>
     </div>
   );
 }
 
-// ─── Design tokens ────────────────────────────────────────────────────────────
+// â”€â”€â”€ Design tokens â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const G = "#4ade80";
 const BG = "#0f172a";
@@ -969,7 +1716,7 @@ const MUTED = "#64748b";
 const SEC = "#94a3b8";
 const TEXT = "#f1f5f9";
 
-// ─── Page styles ──────────────────────────────────────────────────────────────
+// â”€â”€â”€ Page styles â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const s: Record<string, CSSProperties> = {
   root: {
@@ -1088,12 +1835,149 @@ const s: Record<string, CSSProperties> = {
     cursor: "pointer", fontSize: 20, lineHeight: 1, padding: "0 4px", fontWeight: 700,
   },
 
-  content: { flex: 1, overflowY: "auto", padding: 16 },
+  content: { flex: 1, overflowY: "auto", padding: 16, position: "relative" },
+  ordersPane: { transition: "padding-right 0.22s ease", minHeight: "100%" },
   centered: { display: "flex", alignItems: "center", justifyContent: "center", height: "40vh", color: MUTED, fontSize: 15 },
   grid: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 14, alignContent: "start" },
+  panelBackdrop: {
+    position: "absolute",
+    inset: 0,
+    background: "rgba(0,0,0,0.45)",
+    zIndex: 20,
+  },
+  mobilePanelBackdrop: {
+    position: "fixed",
+    inset: 0,
+    background: "rgba(0,0,0,0.6)",
+    zIndex: 1150,
+  },
+  detailPanel: {
+    position: "absolute",
+    top: 0,
+    right: 0,
+    width: PANEL_WIDTH,
+    maxWidth: "100%",
+    height: "100%",
+    background: "#1e293b",
+    borderLeft: `1px solid ${BORDER}`,
+    zIndex: 30,
+    transition: "transform 0.22s ease",
+    display: "flex",
+    flexDirection: "column",
+  },
+  mobilePanel: {
+    position: "fixed",
+    inset: 0,
+    background: "#1e293b",
+    zIndex: 1200,
+    transition: "transform 0.22s ease",
+    display: "flex",
+    flexDirection: "column",
+  },
 };
 
-// ─── Card styles ──────────────────────────────────────────────────────────────
+const dp: Record<string, CSSProperties> = {
+  root: { display: "flex", flexDirection: "column", height: "100%", color: TEXT },
+  loading: { padding: 20, color: MUTED },
+  error: { padding: 20, color: "#f87171" },
+  empty: { padding: 20, color: MUTED },
+  head: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    gap: 10,
+    padding: "14px 14px 10px",
+    borderBottom: `1px solid ${BORDER}`,
+    background: "rgba(15,23,42,0.45)",
+  },
+  orderNumber: { fontSize: 19, fontWeight: 800, lineHeight: 1.1 },
+  badges: { display: "flex", gap: 8, marginTop: 6, flexWrap: "wrap" },
+  typeBadge: {
+    fontSize: 11,
+    fontWeight: 700,
+    borderRadius: 999,
+    padding: "4px 10px",
+    background: "rgba(100,116,139,0.2)",
+    color: SEC,
+  },
+  sourcePos: {
+    fontSize: 11,
+    fontWeight: 800,
+    borderRadius: 999,
+    padding: "4px 10px",
+    background: "rgba(59,130,246,0.15)",
+    color: "#60a5fa",
+  },
+  sourceWeb: {
+    fontSize: 11,
+    fontWeight: 800,
+    borderRadius: 999,
+    padding: "4px 10px",
+    background: "rgba(168,85,247,0.15)",
+    color: "#c084fc",
+  },
+  sourceQr: {
+    fontSize: 11,
+    fontWeight: 800,
+    borderRadius: 999,
+    padding: "4px 10px",
+    background: "rgba(14,165,233,0.15)",
+    color: "#38bdf8",
+  },
+  elapsed: { marginTop: 8, fontSize: 12, color: SEC, fontWeight: 700 },
+  close: {
+    border: "none",
+    background: "transparent",
+    color: SEC,
+    fontSize: 15,
+    fontWeight: 700,
+    cursor: "pointer",
+    lineHeight: 1,
+    padding: 6,
+  },
+  body: { flex: 1, overflowY: "auto", padding: 12, display: "flex", flexDirection: "column", gap: 12 },
+  section: { background: "rgba(15,23,42,0.5)", border: `1px solid ${BORDER}`, borderRadius: 12, padding: 10, display: "grid", gap: 10 },
+  sectionTitle: { fontSize: 11, color: MUTED, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.07em" },
+  statusGrid: { display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 8 },
+  statusBtn: { padding: "10px 8px", borderRadius: 8, border: `1px solid ${BORDER}`, background: "transparent", color: SEC, fontSize: 12, fontWeight: 700, cursor: "pointer" },
+  statusBtnActive: { borderColor: G, background: "rgba(74,222,128,0.15)", color: G },
+  statusBtnDisabled: { opacity: 0.5, cursor: "not-allowed" },
+  itemsList: { display: "grid", gap: 8 },
+  itemCard: { border: `1px solid rgba(51,65,85,0.6)`, borderRadius: 10, padding: "8px 9px", display: "grid", gap: 4, background: "rgba(30,41,59,0.6)" },
+  itemTop: { display: "flex", justifyContent: "space-between", gap: 8 },
+  itemName: { fontSize: 13, fontWeight: 700, color: TEXT, lineHeight: 1.3 },
+  itemTotal: { fontSize: 13, fontWeight: 800, color: G, whiteSpace: "nowrap" },
+  itemSub: { fontSize: 12, color: MUTED },
+  itemMods: { fontSize: 12, color: SEC, lineHeight: 1.35 },
+  totals: { borderTop: `1px solid ${BORDER}`, paddingTop: 8, display: "grid", gap: 4 },
+  totalRow: { display: "flex", justifyContent: "space-between", fontSize: 13, color: SEC },
+  totalRowMain: { display: "flex", justifyContent: "space-between", fontSize: 15, color: TEXT, fontWeight: 800, marginTop: 4 },
+  infoRow: { display: "flex", justifyContent: "space-between", gap: 10, fontSize: 13, color: SEC, alignItems: "center" },
+  infoLink: { color: "#93c5fd", textDecoration: "none", fontWeight: 700, fontSize: 12 },
+  note: { fontSize: 12, color: SEC, border: `1px dashed ${BORDER}`, borderRadius: 8, padding: "6px 8px", lineHeight: 1.4 },
+  footer: { borderTop: `1px solid ${BORDER}`, padding: 12, display: "grid", gap: 8, background: "rgba(15,23,42,0.45)" },
+  addProductsBtn: { padding: "9px 10px", borderRadius: 8, border: `1px dashed ${G}`, background: "rgba(74,222,128,0.06)", color: G, fontSize: 12, fontWeight: 700, cursor: "pointer" },
+  actionBtn: { width: "100%", padding: "11px 10px", borderRadius: 8, border: `1px solid ${BORDER}`, background: "transparent", color: TEXT, fontSize: 13, fontWeight: 700, cursor: "pointer", textAlign: "left" },
+  acceptBtn: { width: "100%", padding: "12px 10px", borderRadius: 10, border: "none", background: G, color: "#052e16", fontSize: 14, fontWeight: 800, cursor: "pointer" },
+};
+
+const apm: Record<string, CSSProperties> = {
+  overlay: { position: "fixed", inset: 0, zIndex: 1300, background: "rgba(0,0,0,0.72)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 },
+  modal: { width: "min(740px, 96vw)", maxHeight: "86vh", background: PANEL, border: `1px solid ${BORDER}`, borderRadius: 14, display: "flex", flexDirection: "column", overflow: "hidden" },
+  head: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 14px", borderBottom: `1px solid ${BORDER}` },
+  title: { margin: 0, fontSize: 18, fontWeight: 800, color: TEXT },
+  close: { border: "none", background: "transparent", color: SEC, fontSize: 14, fontWeight: 700, cursor: "pointer" },
+  catRow: { display: "flex", gap: 7, overflowX: "auto", padding: "10px 14px", borderBottom: `1px solid ${BORDER}` },
+  cat: { border: `1px solid ${BORDER}`, background: "transparent", color: SEC, borderRadius: 999, padding: "5px 11px", fontSize: 12, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" },
+  catActive: { border: `1px solid ${G}`, background: "rgba(74,222,128,0.12)", color: G, borderRadius: 999, padding: "5px 11px", fontSize: 12, fontWeight: 800, cursor: "pointer", whiteSpace: "nowrap" },
+  grid: { overflowY: "auto", display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: 10, padding: 14, alignContent: "start" },
+  centered: { minHeight: 120, display: "flex", alignItems: "center", justifyContent: "center", color: MUTED },
+  productBtn: { textAlign: "left", border: `1px solid ${BORDER}`, background: "rgba(15,23,42,0.7)", color: TEXT, borderRadius: 10, padding: "11px 10px", cursor: "pointer", display: "grid", gap: 6 },
+  productName: { fontSize: 13, fontWeight: 700, lineHeight: 1.3 },
+  productPrice: { fontSize: 14, fontWeight: 800, color: G },
+};
+
+// â”€â”€â”€ Card styles â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const c: Record<string, CSSProperties> = {
   card: {
@@ -1107,6 +1991,7 @@ const c: Record<string, CSSProperties> = {
   time: { fontSize: 18, fontWeight: 800, color: TEXT, letterSpacing: "-0.01em", marginRight: 2 },
   badgePos: { fontSize: 10, fontWeight: 800, padding: "2px 7px", borderRadius: 6, background: "rgba(59,130,246,0.15)", color: "#60a5fa", letterSpacing: "0.05em" },
   badgeWeb: { fontSize: 10, fontWeight: 800, padding: "2px 7px", borderRadius: 6, background: "rgba(168,85,247,0.15)", color: "#c084fc", letterSpacing: "0.05em" },
+  badgeQr: { fontSize: 10, fontWeight: 800, padding: "2px 7px", borderRadius: 6, background: "rgba(14,165,233,0.15)", color: "#38bdf8", letterSpacing: "0.05em" },
   badgeType: { fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 6, background: "rgba(100,116,139,0.15)", color: SEC, letterSpacing: "0.05em" },
   badgeNew: { fontSize: 10, fontWeight: 800, padding: "2px 7px", borderRadius: 6, background: "rgba(249,115,22,0.20)", color: "#f97316", letterSpacing: "0.05em", animation: "pos-new-badge 1s ease-in-out infinite alternate" },
   // FIX 3: fiado badge style
@@ -1134,7 +2019,7 @@ const c: Record<string, CSSProperties> = {
   reprintBtn: { padding: "10px 10px", borderRadius: 8, border: `1px solid ${BORDER}`, background: "transparent", color: SEC, fontSize: 12, fontWeight: 600, cursor: "pointer", minHeight: 40, flexShrink: 0 },
 };
 
-// ─── Inject keyframes once ────────────────────────────────────────────────────
+// â”€â”€â”€ Inject keyframes once â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 if (typeof document !== "undefined") {
   const styleId = "pos-orders-keyframes";
@@ -1159,3 +2044,6 @@ if (typeof document !== "undefined") {
     document.head.appendChild(style);
   }
 }
+
+
+

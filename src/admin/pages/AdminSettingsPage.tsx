@@ -1,7 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
+import {
+  buildOrderConfirmationMessage,
+  DEFAULT_WHATSAPP_TEMPLATE,
+} from "../../lib/whatsapp/whatsappService";
 
+import { PrintAppDownload } from "../components/PrintAppDownload";
 import { useAdminMembership } from "../components/AdminMembershipContext";
+import { PaymentMethodToggle } from "../components/settings/PaymentMethodToggle";
+import { SettingsTabs, type SettingsTabId } from "../components/settings/SettingsTabs";
+import { StripeConnectCard, type StripeConnectUiStatus } from "../components/settings/StripeConnectCard";
 import { supabase } from "../../lib/supabase";
 import { useRestaurant } from "../../restaurant/RestaurantContext";
 import { toDataURL } from "qrcode";
@@ -51,6 +59,20 @@ type SettingsRow = {
   loyalty_points_per_eur?: number | null;
   loyalty_min_redeem?: number | null;
   loyalty_redeem_value?: number | null;
+  print_mode?: string | null;
+  auto_print_web_orders?: boolean | null;
+  auto_print_pos_orders?: boolean | null;
+  print_on_new_order?: boolean | null;
+  print_on_accept?: boolean | null;
+  kitchen_printer_name?: string | null;
+  customer_printer_name?: string | null;
+  print_width?: string | null;
+  rawbt_enabled?: boolean | null;
+  local_print_url?: string | null;
+  whatsapp_phone?: string | null;
+  whatsapp_enabled?: boolean | null;
+  whatsapp_message_template?: string | null;
+  whatsapp_provider?: string | null;
 };
 
 type HourRow = {
@@ -58,6 +80,21 @@ type HourRow = {
   is_open: boolean;
   open_time: string;
   close_time: string;
+};
+
+type RestaurantRow = {
+  id: string;
+  name: string | null;
+  meta_title: string | null;
+  meta_description: string | null;
+  og_image_url: string | null;
+  stripe_account_id?: string | null;
+  stripe_connected?: boolean | null;
+  stripe_charges_enabled?: boolean | null;
+  stripe_payouts_enabled?: boolean | null;
+  stripe_onboarding_completed?: boolean | null;
+  stripe_connect_status?: string | null;
+  online_payment_enabled?: boolean | null;
 };
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -80,6 +117,22 @@ const DEFAULT_DAY: Omit<HourRow, "day_of_week"> = {
   open_time: "09:00",
   close_time: "23:00",
 };
+
+const SETTINGS_TABS: Array<{ id: SettingsTabId; label: string }> = [
+  { id: "general", label: "General" },
+  { id: "delivery", label: "Reparto" },
+  { id: "payments", label: "Pagos" },
+  { id: "hours", label: "Horarios" },
+  { id: "zone", label: "Zona" },
+  { id: "qr", label: "QR" },
+  { id: "seo", label: "SEO" },
+  { id: "loyalty", label: "Fidelizacion" },
+  { id: "printing", label: "Impresion" },
+];
+
+const STRIPE_PLATFORM_CONFIGURED =
+  import.meta.env.VITE_STRIPE_ENABLED === "true" &&
+  String(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY ?? "").trim().length > 0;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -111,6 +164,28 @@ function toDayMap(rows: HourRow[]): Record<number, HourRow> {
   return map;
 }
 
+function isMissingColumnError(message: string | undefined): boolean {
+  return String(message ?? "").toLowerCase().includes("column");
+}
+
+function getStripeUiStatus(params: {
+  platformConfigured: boolean;
+  stripeConnected: boolean;
+  stripeOnboardingCompleted: boolean;
+  stripeChargesEnabled: boolean;
+  stripePayoutsEnabled: boolean;
+  stripeConnectStatus: string;
+}): StripeConnectUiStatus {
+  if (!params.platformConfigured) return "platform_not_configured";
+  if (params.stripeConnected && params.stripeOnboardingCompleted && params.stripeChargesEnabled && params.stripePayoutsEnabled) {
+    return "active";
+  }
+  if (params.stripeConnected && !params.stripeOnboardingCompleted) return "onboarding_pending";
+  if (params.stripeConnected && !params.stripeChargesEnabled) return "connected_not_chargeable";
+  if (params.stripeConnected || params.stripeConnectStatus === "connected") return "connected";
+  return "not_connected";
+}
+
 // ─── UI primitives ────────────────────────────────────────────────────────────
 
 function Toggle({
@@ -129,9 +204,9 @@ function Toggle({
       aria-checked={checked}
       onClick={() => { if (!disabled) onChange(!checked); }}
       style={{
-        width: 44,
-        height: 24,
-        borderRadius: 12,
+        width: 52,
+        height: 30,
+        borderRadius: 999,
         border: "none",
         cursor: disabled ? "not-allowed" : "pointer",
         background: checked ? "var(--brand-primary)" : "#d1d5db",
@@ -145,10 +220,10 @@ function Toggle({
       <span
         style={{
           position: "absolute",
-          top: 2,
-          left: checked ? 22 : 2,
-          width: 20,
-          height: 20,
+          top: 3,
+          left: checked ? 25 : 3,
+          width: 24,
+          height: 24,
           borderRadius: "50%",
           background: "#fff",
           transition: "left 0.18s",
@@ -181,9 +256,9 @@ function SaveButton({
         background: isDisabled ? "#9ca3af" : "var(--brand-primary)",
         color: "#fff",
         border: "none",
-        borderRadius: 8,
-        padding: "9px 20px",
-        fontWeight: 600,
+        borderRadius: 10,
+        padding: "9px 16px",
+        fontWeight: 700,
         fontSize: 14,
         cursor: isDisabled ? "not-allowed" : "pointer",
         display: "inline-flex",
@@ -222,11 +297,11 @@ function Card({
   return (
     <article
       style={{
-        background: "var(--admin-card-bg)",
-        border: "1px solid var(--admin-card-border)",
-        borderRadius: "var(--admin-radius-md)",
-        boxShadow: "var(--admin-card-shadow)",
-        padding: "20px 24px",
+        background: "#fff",
+        border: "1px solid #dbe5ef",
+        borderRadius: 16,
+        boxShadow: "0 10px 22px rgba(15,23,42,0.07)",
+        padding: "20px 20px",
         display: "grid",
         gap: 18,
       }}
@@ -334,6 +409,7 @@ function DraggableMarker({
 export default function AdminSettingsPage() {
   const { canManage } = useAdminMembership();
   const { restaurantId, slug, menuPath } = useRestaurant();
+  const [activeTab, setActiveTab] = useState<SettingsTabId>("general");
 
   const [loading, setLoading] = useState(true);
 
@@ -361,7 +437,14 @@ export default function AdminSettingsPage() {
   // Pagos
   const [allowCash, setAllowCash] = useState(true);
   const [allowCardOnDelivery, setAllowCardOnDelivery] = useState(false);
-  const [allowCardOnline, setAllowCardOnline] = useState(false);
+  const [onlinePaymentEnabled, setOnlinePaymentEnabled] = useState(false);
+  const [stripeColumnsAvailable, setStripeColumnsAvailable] = useState(true);
+  const [stripeAccountId, setStripeAccountId] = useState<string | null>(null);
+  const [stripeConnected, setStripeConnected] = useState(false);
+  const [stripeChargesEnabled, setStripeChargesEnabled] = useState(false);
+  const [stripePayoutsEnabled, setStripePayoutsEnabled] = useState(false);
+  const [stripeOnboardingCompleted, setStripeOnboardingCompleted] = useState(false);
+  const [stripeConnectStatus, setStripeConnectStatus] = useState("");
   const [savingPayments, setSavingPayments] = useState(false);
 
   // Horario
@@ -392,6 +475,28 @@ export default function AdminSettingsPage() {
   const [seoOgImage, setSeoOgImage] = useState("");
   const [savingSEO, setSavingSEO] = useState(false);
 
+  // Impresión
+  const [printMode, setPrintMode] = useState<"browser" | "desktop_app">("browser");
+  const [autoPrintWebOrders, setAutoPrintWebOrders] = useState(false);
+  const [autoPrintPosOrders, setAutoPrintPosOrders] = useState(false);
+  const [printOnNewOrder, setPrintOnNewOrder] = useState(false);
+  const [printOnAccept, setPrintOnAccept] = useState(false);
+  const [kitchenPrinterName, setKitchenPrinterName] = useState("");
+  const [customerPrinterName, setCustomerPrinterName] = useState("");
+  const [printWidth, setPrintWidth] = useState<"58mm" | "80mm">("80mm");
+  const [rawbtEnabled, setRawbtEnabled] = useState(false);
+  const [localPrintUrl, setLocalPrintUrl] = useState("http://127.0.0.1:18181/print");
+  const [savingPrinting, setSavingPrinting] = useState(false);
+  const [testingConnection, setTestingConnection] = useState(false);
+  const [connectionStatus, setConnectionStatus] = useState<"idle" | "ok" | "error">("idle");
+
+  // WhatsApp
+  const [whatsappEnabled, setWhatsappEnabled] = useState(false);
+  const [whatsappPhone, setWhatsappPhone] = useState("");
+  const [whatsappTemplate, setWhatsappTemplate] = useState(DEFAULT_WHATSAPP_TEMPLATE);
+  const [whatsappProvider, setWhatsappProvider] = useState<"link" | "twilio" | "360dialog">("link");
+  const [savingWhatsapp, setSavingWhatsapp] = useState(false);
+
   // QR
   const [qrDataUrl, setQrDataUrl] = useState("");
   const [qrMenuUrl, setQrMenuUrl] = useState("");
@@ -400,8 +505,10 @@ export default function AdminSettingsPage() {
   // Toasts
   const [toasts, setToasts] = useState<Toast[]>([]);
   const toastSeqRef = useRef(0);
+  const [hasPendingVisual, setHasPendingVisual] = useState(false);
 
   const pushToast = useCallback((type: ToastType, message: string) => {
+    if (type === "success") setHasPendingVisual(false);
     toastSeqRef.current += 1;
     const id = toastSeqRef.current;
     setToasts((prev) => [...prev, { id, type, message }]);
@@ -410,30 +517,65 @@ export default function AdminSettingsPage() {
     }, 3500);
   }, []);
 
+  const isSavingAny =
+    savingAccepting ||
+    savingGeneral ||
+    savingDelivery ||
+    savingPayments ||
+    savingHoursAll ||
+    savingDay !== null ||
+    savingZone ||
+    savingSEO ||
+    savingLoyalty ||
+    savingPrinting ||
+    savingWhatsapp;
+
   // ── Load ──────────────────────────────────────────────────────────────────
 
   const load = useCallback(async () => {
     setLoading(true);
 
     // Restaurant name + SEO
-    const restaurantRes = await supabase
+    let restaurantRes = await supabase
       .from("restaurants")
-      .select("id, name, meta_title, meta_description, og_image_url")
+      .select(
+        "id, name, meta_title, meta_description, og_image_url, stripe_account_id, stripe_connected, stripe_charges_enabled, stripe_payouts_enabled, stripe_onboarding_completed, stripe_connect_status, online_payment_enabled"
+      )
       .eq("id", restaurantId)
-      .maybeSingle<{ id: string; name: string | null; meta_title: string | null; meta_description: string | null; og_image_url: string | null }>();
+      .maybeSingle<RestaurantRow>();
+
+    if (restaurantRes.error && isMissingColumnError(restaurantRes.error.message)) {
+      setStripeColumnsAvailable(false);
+      restaurantRes = await supabase
+        .from("restaurants")
+        .select("id, name, meta_title, meta_description, og_image_url")
+        .eq("id", restaurantId)
+        .maybeSingle<RestaurantRow>();
+    } else {
+      setStripeColumnsAvailable(true);
+    }
+
+    const loadedOnlinePaymentEnabled = restaurantRes.data?.online_payment_enabled === true;
 
     if (restaurantRes.data) {
       setRestaurantName(restaurantRes.data.name ?? "");
       setSeoMetaTitle(restaurantRes.data.meta_title ?? "");
       setSeoMetaDesc(restaurantRes.data.meta_description ?? "");
       setSeoOgImage(restaurantRes.data.og_image_url ?? "");
+      setStripeAccountId(restaurantRes.data.stripe_account_id ?? null);
+      setStripeConnected(restaurantRes.data.stripe_connected === true);
+      setStripeChargesEnabled(restaurantRes.data.stripe_charges_enabled === true);
+      setStripePayoutsEnabled(restaurantRes.data.stripe_payouts_enabled === true);
+      setStripeOnboardingCompleted(restaurantRes.data.stripe_onboarding_completed === true);
+      setStripeConnectStatus(String(restaurantRes.data.stripe_connect_status ?? ""));
+      setOnlinePaymentEnabled(loadedOnlinePaymentEnabled);
     }
 
     // Settings
     const settingsRes = await supabase
       .from("restaurant_settings")
       .select(
-        "restaurant_id, is_accepting_orders, delivery_radius_km, delivery_fee, delivery_fee_fixed, delivery_fee_mode, delivery_fee_base, delivery_fee_per_km, delivery_fee_min, delivery_fee_max, free_delivery_over, min_order_amount, allow_cash, allow_card, allow_card_on_delivery, allow_card_online, base_lat, base_lng, restaurant_address, estimated_delivery_minutes, estimated_pickup_minutes, loyalty_enabled, loyalty_points_per_eur, loyalty_min_redeem, loyalty_redeem_value"
+        "restaurant_id, is_accepting_orders, delivery_radius_km, delivery_fee, delivery_fee_fixed, delivery_fee_mode, delivery_fee_base, delivery_fee_per_km, delivery_fee_min, delivery_fee_max, free_delivery_over, min_order_amount, allow_cash, allow_card, allow_card_on_delivery, allow_card_online, base_lat, base_lng, restaurant_address, estimated_delivery_minutes, estimated_pickup_minutes, loyalty_enabled, loyalty_points_per_eur, loyalty_min_redeem, loyalty_redeem_value, print_mode, auto_print_web_orders, auto_print_pos_orders, print_on_new_order, print_on_accept, kitchen_printer_name, customer_printer_name, print_width, rawbt_enabled, local_print_url, whatsapp_phone, whatsapp_enabled, whatsapp_message_template, whatsapp_provider"
       )
       .eq("restaurant_id", restaurantId)
       .maybeSingle<SettingsRow>();
@@ -465,7 +607,6 @@ export default function AdminSettingsPage() {
       setMinOrderAmount(String(toNum(s.min_order_amount, 0)));
       setAllowCash(s.allow_cash !== false);
       setAllowCardOnDelivery(s.allow_card_on_delivery === true);
-      setAllowCardOnline(s.allow_card_online === true);
       setBaseLat(s.base_lat != null ? String(s.base_lat) : "");
       setBaseLng(s.base_lng != null ? String(s.base_lng) : "");
       setEstimatedDeliveryMins(String(toNum(s.estimated_delivery_minutes, 30)));
@@ -474,6 +615,30 @@ export default function AdminSettingsPage() {
       setLoyaltyPointsPerEur(String(toNum(s.loyalty_points_per_eur, 10)));
       setLoyaltyMinRedeem(String(toNum(s.loyalty_min_redeem, 100)));
       setLoyaltyRedeemValue(String(toNum(s.loyalty_redeem_value, 1)));
+      setPrintMode(s.print_mode === "desktop_app" ? "desktop_app" : "browser");
+      setAutoPrintWebOrders(s.auto_print_web_orders === true);
+      setAutoPrintPosOrders(s.auto_print_pos_orders === true);
+      setPrintOnNewOrder(s.print_on_new_order === true);
+      setPrintOnAccept(s.print_on_accept === true);
+      setKitchenPrinterName(s.kitchen_printer_name ?? "");
+      setCustomerPrinterName(s.customer_printer_name ?? "");
+      setPrintWidth(s.print_width === "58mm" ? "58mm" : "80mm");
+      setRawbtEnabled(s.rawbt_enabled === true);
+      setLocalPrintUrl(s.local_print_url ?? "http://127.0.0.1:18181/print");
+      setWhatsappEnabled(s.whatsapp_enabled === true);
+      setWhatsappPhone(s.whatsapp_phone ?? "");
+      setWhatsappTemplate(
+        s.whatsapp_message_template && s.whatsapp_message_template.trim()
+          ? s.whatsapp_message_template
+          : DEFAULT_WHATSAPP_TEMPLATE
+      );
+      setWhatsappProvider(
+        (s.whatsapp_provider as "link" | "twilio" | "360dialog" | null | undefined) === "twilio"
+          ? "twilio"
+          : (s.whatsapp_provider as "link" | "twilio" | "360dialog" | null | undefined) === "360dialog"
+            ? "360dialog"
+            : "link"
+      );
     } else {
       // No row yet — insert defaults
       await supabase
@@ -509,6 +674,37 @@ export default function AdminSettingsPage() {
   }, [load]);
 
   const canSave = canManage && !loading;
+  const stripeUiStatus = useMemo(
+    () =>
+      getStripeUiStatus({
+        platformConfigured: STRIPE_PLATFORM_CONFIGURED,
+        stripeConnected,
+        stripeOnboardingCompleted,
+        stripeChargesEnabled,
+        stripePayoutsEnabled,
+        stripeConnectStatus,
+      }),
+    [
+      stripeChargesEnabled,
+      stripeConnectStatus,
+      stripeConnected,
+      stripeOnboardingCompleted,
+      stripePayoutsEnabled,
+    ]
+  );
+  const stripeIsActive = stripeUiStatus === "active";
+  const onlinePaymentToggleEnabled = canSave && stripeColumnsAvailable && stripeIsActive;
+  const onlinePaymentHelperText =
+    !stripeColumnsAvailable
+      ? "Actualiza tu base de datos para habilitar pagos online."
+      : !STRIPE_PLATFORM_CONFIGURED
+        ? "Stripe aun no esta configurado por la plataforma."
+        : !stripeIsActive
+          ? "Conecta y activa tu cuenta Stripe para habilitar pagos online."
+          : "Activo en la web del restaurante.";
+  const stripeAccountHelperText = stripeAccountId
+    ? `Cuenta conectada: ${stripeAccountId}`
+    : "Aun no hay una cuenta Stripe asociada.";
 
   // ── Save: accepting orders (immediate on toggle) ───────────────────────────
 
@@ -603,6 +799,76 @@ export default function AdminSettingsPage() {
     setSavingSEO(false);
   };
 
+  // ── Save: impresión ────────────────────────────────────────────────────────
+
+  const savePrinting = async () => {
+    if (!canSave || savingPrinting) return;
+    setSavingPrinting(true);
+    const { error } = await supabase
+      .from("restaurant_settings")
+      .upsert(
+        {
+          restaurant_id: restaurantId,
+          print_mode: printMode,
+          auto_print_web_orders: autoPrintWebOrders,
+          auto_print_pos_orders: autoPrintPosOrders,
+          print_on_new_order: printOnNewOrder,
+          print_on_accept: printOnAccept,
+          kitchen_printer_name: kitchenPrinterName.trim() || null,
+          customer_printer_name: customerPrinterName.trim() || null,
+          print_width: printWidth,
+          rawbt_enabled: rawbtEnabled,
+          local_print_url:
+            localPrintUrl.trim() || "http://127.0.0.1:18181/print",
+        },
+        { onConflict: "restaurant_id" }
+      );
+    if (error) pushToast("error", `Error: ${error.message}`);
+    else pushToast("success", "Configuración de impresión guardada.");
+    setSavingPrinting(false);
+  };
+
+  const testConnection = async () => {
+    setTestingConnection(true);
+    setConnectionStatus("idle");
+    try {
+      const statusUrl = localPrintUrl.replace(/\/print\/?$/, "/status");
+      const res = await Promise.race([
+        fetch(statusUrl, { method: "GET" }),
+        new Promise<never>((_, reject) =>
+          window.setTimeout(() => reject(new Error("timeout")), 3000)
+        ),
+      ]);
+      setConnectionStatus((res as Response).ok ? "ok" : "error");
+    } catch {
+      setConnectionStatus("error");
+    } finally {
+      setTestingConnection(false);
+    }
+  };
+
+  // ── Save: whatsapp ─────────────────────────────────────────────────────────
+
+  const saveWhatsapp = async () => {
+    if (!canSave || savingWhatsapp) return;
+    setSavingWhatsapp(true);
+    const { error } = await supabase
+      .from("restaurant_settings")
+      .upsert(
+        {
+          restaurant_id: restaurantId,
+          whatsapp_enabled: whatsappEnabled,
+          whatsapp_phone: whatsappPhone.trim() || null,
+          whatsapp_message_template: whatsappTemplate.trim() || DEFAULT_WHATSAPP_TEMPLATE,
+          whatsapp_provider: whatsappProvider,
+        },
+        { onConflict: "restaurant_id" }
+      );
+    if (error) pushToast("error", `Error: ${error.message}`);
+    else pushToast("success", "Configuración de WhatsApp guardada.");
+    setSavingWhatsapp(false);
+  };
+
   // ── Save: delivery ─────────────────────────────────────────────────────────
 
   const saveDelivery = async () => {
@@ -642,25 +908,43 @@ export default function AdminSettingsPage() {
 
   const savePayments = async () => {
     if (!canSave || savingPayments) return;
-    if (!allowCash && !allowCardOnDelivery && !allowCardOnline) {
-      pushToast("error", "Habilita al menos un método de pago.");
+    if (!allowCash && !allowCardOnDelivery && !onlinePaymentEnabled) {
+      pushToast("error", "Habilita al menos un m\u00e9todo de pago.");
       return;
     }
     setSavingPayments(true);
-    const { error } = await supabase
+    const normalizedOnline = stripeIsActive && onlinePaymentEnabled;
+    const settingsRes = await supabase
       .from("restaurant_settings")
       .upsert(
         {
           restaurant_id: restaurantId,
           allow_cash: allowCash,
-          allow_card: allowCardOnDelivery || allowCardOnline,
+          allow_card: allowCardOnDelivery || normalizedOnline,
           allow_card_on_delivery: allowCardOnDelivery,
-          allow_card_online: allowCardOnline,
+          allow_card_online: normalizedOnline,
         },
         { onConflict: "restaurant_id" }
       );
-    if (error) pushToast("error", `Error guardando pagos: ${error.message}`);
-    else pushToast("success", "Métodos de pago guardados.");
+    if (settingsRes.error) {
+      pushToast("error", `Error guardando pagos: ${settingsRes.error.message}`);
+      setSavingPayments(false);
+      return;
+    }
+    if (stripeColumnsAvailable) {
+      const restaurantRes = await supabase
+        .from("restaurants")
+        .update({ online_payment_enabled: normalizedOnline })
+        .eq("id", restaurantId);
+      if (restaurantRes.error && isMissingColumnError(restaurantRes.error.message)) {
+        setStripeColumnsAvailable(false);
+      } else if (restaurantRes.error) {
+        pushToast("error", `Error guardando Stripe: ${restaurantRes.error.message}`);
+        setSavingPayments(false);
+        return;
+      }
+    }
+    pushToast("success", "M\u00e9todos de pago guardados.");
     setSavingPayments(false);
   };
 
@@ -842,19 +1126,68 @@ export default function AdminSettingsPage() {
           outline: none;
         }
         .day-row-open { background: var(--brand-primary-soft) !important; border-color: var(--brand-primary-border) !important; }
-        .payment-row { display: flex; align-items: center; gap: 14px; padding: 12px 14px; background: #f8fafc; border-radius: 8px; border: 1px solid var(--admin-card-border); }
+        .settings-shell { display: grid; gap: 16px; max-width: 1180px; }
+        .settings-header {
+          border: 1px solid #dbe5ef;
+          border-radius: 16px;
+          background: linear-gradient(135deg, #ffffff 0%, #f8fafc 75%);
+          box-shadow: 0 12px 24px rgba(15, 23, 42, 0.08);
+          padding: 16px 18px;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
+          flex-wrap: wrap;
+        }
+        .settings-save-indicator {
+          border-radius: 999px;
+          border: 1px solid #dbe5ef;
+          background: #fff;
+          padding: 6px 10px;
+          font-size: 12px;
+          font-weight: 700;
+          color: #334155;
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+        }
+        .payment-row {
+          display: flex;
+          align-items: center;
+          gap: 14px;
+          padding: 12px 14px;
+          background: #fff;
+          border-radius: 10px;
+          border: 1px solid #dbe5ef;
+          box-shadow: 0 4px 14px rgba(15,23,42,0.05);
+        }
       `}</style>
 
-      <section className="admin-panel" style={{ display: "grid", gap: 20, maxWidth: 780 }}>
-        {/* ── Header ── */}
-        <header>
-          <h2 style={{ margin: 0, fontSize: 22, fontWeight: 700 }}>Ajustes</h2>
-          <p style={{ margin: "4px 0 0", color: "var(--admin-text-secondary)", fontSize: 14 }}>
-            Configura tu restaurante, reparto, pagos y horarios.
-          </p>
+      <section className="admin-panel settings-shell" onChangeCapture={() => setHasPendingVisual(true)}>
+        <header className="settings-header">
+          <div style={{ display: "grid", gap: 4 }}>
+            <h2 style={{ margin: 0, fontSize: 23, fontWeight: 800, color: "#0f172a" }}>Ajustes del restaurante</h2>
+            <p style={{ margin: 0, color: "#64748b", fontSize: 14 }}>
+              Configura reparto, pagos, horarios, QR, SEO e impresion de tu negocio.
+            </p>
+          </div>
+          <div
+            className="settings-save-indicator"
+            style={{
+              borderColor: isSavingAny ? "#bfdbfe" : hasPendingVisual ? "#fcd34d" : "#dbe5ef",
+              background: isSavingAny ? "#eff6ff" : hasPendingVisual ? "#fffbeb" : "#fff",
+              color: isSavingAny ? "#1d4ed8" : hasPendingVisual ? "#92400e" : "#334155",
+            }}
+          >
+            <span>{isSavingAny ? "Guardando..." : hasPendingVisual ? "Cambios pendientes" : "Guardado"}</span>
+          </div>
         </header>
 
-        {/* ── Banner: restaurante cerrado ── */}
+        <SettingsTabs items={SETTINGS_TABS} activeTab={activeTab} onChange={setActiveTab} />
+
+        <section style={{ display: "grid", gap: 16 }}>
+        <div style={{ display: activeTab === "general" ? "grid" : "none", gap: 16 }}>
+{/* ── Banner: restaurante cerrado ── */}
         {!isAcceptingOrders && (
           <div
             style={{
@@ -940,6 +1273,9 @@ export default function AdminSettingsPage() {
           </div>
         </Card>
 
+        </div>
+
+        <div style={{ display: activeTab === "delivery" ? "grid" : "none", gap: 16 }}>
         {/* ── Reparto ── */}
         <Card title="Reparto" subtitle="Radio de entrega, tarifas y pedido mínimo">
           <div style={{ display: "grid", gap: 16 }}>
@@ -1088,49 +1424,77 @@ export default function AdminSettingsPage() {
           </div>
         </Card>
 
+        </div>
+
+        <div style={{ display: activeTab === "payments" ? "grid" : "none", gap: 16 }}>
         {/* ── Métodos de pago ── */}
-        <Card title="Métodos de pago" subtitle="Elige qué métodos de pago acepta tu restaurante">
+        <Card title="Metodos de pago" subtitle="Elige que metodos de pago acepta tu restaurante">
           <div style={{ display: "grid", gap: 10 }}>
-            <div className="payment-row">
-              <Toggle
-                checked={allowCash}
-                onChange={setAllowCash}
-                disabled={cannotSave}
-              />
-              <div>
-                <div style={{ fontWeight: 500, fontSize: 14 }}>Efectivo</div>
-                <div style={{ fontSize: 12, color: "var(--admin-text-secondary)" }}>
-                  El cliente paga al repartidor en mano
-                </div>
-              </div>
-            </div>
-
-            <div className="payment-row">
-              <Toggle
-                checked={allowCardOnDelivery}
-                onChange={setAllowCardOnDelivery}
-                disabled={cannotSave}
-              />
-              <div>
-                <div style={{ fontWeight: 500, fontSize: 14 }}>Tarjeta en la puerta</div>
-                <div style={{ fontSize: 12, color: "var(--admin-text-secondary)" }}>
-                  Datáfono al entregar el pedido
-                </div>
-              </div>
-            </div>
-
-            <div className="payment-row">
-              <Toggle
-                checked={allowCardOnline}
-                onChange={setAllowCardOnline}
-                disabled={cannotSave}
-              />
-              <div>
-                <div style={{ fontWeight: 500, fontSize: 14 }}>Pago online (Stripe)</div>
-                <div style={{ fontSize: 12, color: "var(--admin-text-secondary)" }}>
-                  El cliente paga antes de que se confirme el pedido
-                </div>
-              </div>
+            <PaymentMethodToggle
+              icon="EUR"
+              title="Efectivo"
+              description="El cliente paga al repartidor en mano."
+              action={<Toggle checked={allowCash} onChange={setAllowCash} disabled={cannotSave} />}
+            />
+            <PaymentMethodToggle
+              icon="POS"
+              title="Tarjeta en la puerta"
+              description="Datafono al entregar el pedido."
+              action={<Toggle checked={allowCardOnDelivery} onChange={setAllowCardOnDelivery} disabled={cannotSave} />}
+            />
+            <StripeConnectCard
+              status={stripeUiStatus}
+              disabled={!canSave}
+              platformMessage="Stripe aun no configurado por la plataforma. Cuando este listo, podras conectar tu cuenta y activar cobros online."
+              onPrimaryAction={() => {
+                if (!canSave) return;
+                if (!STRIPE_PLATFORM_CONFIGURED) {
+                  pushToast("error", "Stripe aun no configurado por la plataforma.");
+                  return;
+                }
+                if (stripeUiStatus === "not_connected") {
+                  pushToast("success", "Flujo de conexion preparado. Podras conectarlo cuando Stripe este activado.");
+                  return;
+                }
+                if (stripeUiStatus === "onboarding_pending") {
+                  pushToast("success", "Onboarding pendiente detectado. Continua cuando Stripe Connect este activo.");
+                  return;
+                }
+                pushToast("success", "Conexion Stripe lista para revisar.");
+              }}
+              onSecondaryAction={() => {
+                if (!canSave) return;
+                pushToast("success", "Desconexion preparada para la fase de integracion real.");
+              }}
+            />
+            <PaymentMethodToggle
+              icon="WEB"
+              title="Permitir pago online en la web"
+              description="Activa este metodo para que el cliente pueda pagar online antes de confirmar su pedido."
+              action={
+                <Toggle
+                  checked={onlinePaymentEnabled}
+                  onChange={setOnlinePaymentEnabled}
+                  disabled={!onlinePaymentToggleEnabled}
+                />
+              }
+              helperText={onlinePaymentHelperText}
+            />
+            <div
+              style={{
+                borderRadius: 10,
+                border: "1px solid #dbe5ef",
+                background: "#f8fafc",
+                color: "#475569",
+                padding: "10px 12px",
+                fontSize: 12,
+                lineHeight: 1.45,
+              }}
+            >
+              Para aceptar pagos online, cada restaurante debe conectar su cuenta Stripe. El dinero se ingresa
+              directamente en su cuenta Stripe.
+              <br />
+              {stripeAccountHelperText}
             </div>
           </div>
 
@@ -1143,6 +1507,8 @@ export default function AdminSettingsPage() {
           </div>
         </Card>
 
+        </div>
+<div style={{ display: activeTab === "hours" ? "grid" : "none", gap: 16 }}>
         {/* ── Horario de apertura ── */}
         <Card title="Horario de apertura" subtitle="Define los días y horas en que tu restaurante está abierto">
           {/* Day indicators + save all */}
@@ -1312,6 +1678,9 @@ export default function AdminSettingsPage() {
           </div>
         </Card>
 
+        </div>
+
+        <div style={{ display: activeTab === "zone" ? "grid" : "none", gap: 16 }}>
         {/* ── Zona de reparto ── */}
         <Card
           title="Zona de reparto"
@@ -1431,6 +1800,9 @@ export default function AdminSettingsPage() {
           </div>
         </Card>
 
+        </div>
+
+        <div style={{ display: activeTab === "qr" ? "grid" : "none", gap: 16 }}>
         {/* ── Código QR del menú ── */}
         <div id="qr-section">
           <Card
@@ -1518,11 +1890,12 @@ export default function AdminSettingsPage() {
             </div>
           </Card>
         </div>
+        </div>
       </section>
 
       {/* ── SEO ── */}
       <section style={{ display: "grid", gap: 16 }}>
-        <h2 className="admin-panel" style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>SEO</h2>
+        <div style={{ display: activeTab === "seo" ? "grid" : "none", gap: 16 }}>
         <Card title="Metadatos SEO" subtitle="Controla cómo aparece tu restaurante en buscadores y redes sociales.">
           <Field
             label="Meta título"
@@ -1601,6 +1974,9 @@ export default function AdminSettingsPage() {
           <SaveButton onClick={() => void saveSEO()} saving={savingSEO} disabled={!canSave} />
         </Card>
 
+        </div>
+
+        <div style={{ display: activeTab === "loyalty" ? "grid" : "none", gap: 16 }}>
         {/* ── Fidelización ── */}
         <Card title="Programa de fidelización" subtitle="Recompensa a tus clientes con puntos por cada pedido">
           <Field label="Activar programa de puntos">
@@ -1663,6 +2039,443 @@ export default function AdminSettingsPage() {
           )}
           <SaveButton onClick={() => void saveLoyalty()} saving={savingLoyalty} disabled={!canSave} />
         </Card>
+
+        </div>
+
+        <div style={{ display: activeTab === "printing" ? "grid" : "none", gap: 16 }}>
+        {/* ── Impresión ── */}
+        <Card
+          title="Configuración de impresión"
+          subtitle="Elige cómo imprimir tickets: popup del navegador o app de escritorio para impresión automática"
+        >
+          {/* Mode selector */}
+          <Field label="Modo de impresión">
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+              {(
+                [
+                  {
+                    value: "browser" as const,
+                    icon: "🌐",
+                    title: "Navegador / Móvil",
+                    desc: "Funciona en cualquier dispositivo. Android: compatible con RawBT. iOS: AirPrint / ventana de impresión.",
+                  },
+                  {
+                    value: "desktop_app" as const,
+                    icon: "🖥️",
+                    title: "App de escritorio",
+                    desc: "Impresión automática. Requiere la app para Windows instalada en el PC con la impresora.",
+                  },
+                ] as const
+              ).map((opt) => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => { if (canManage) setPrintMode(opt.value); }}
+                  style={{
+                    border: `2px solid ${printMode === opt.value ? "var(--brand-primary)" : "var(--admin-card-border)"}`,
+                    borderRadius: 10,
+                    padding: "12px 14px",
+                    textAlign: "left",
+                    cursor: canManage ? "pointer" : "not-allowed",
+                    background: printMode === opt.value ? "var(--brand-primary-soft)" : "#fff",
+                    transition: "border-color 0.15s, background 0.15s",
+                    opacity: canManage ? 1 : 0.6,
+                  }}
+                >
+                  <div style={{ fontSize: 20, marginBottom: 4 }}>{opt.icon}</div>
+                  <div style={{ fontWeight: 600, fontSize: 13, color: "var(--admin-text-primary)" }}>
+                    {opt.title}
+                  </div>
+                  <div style={{ fontSize: 12, color: "var(--admin-text-secondary)", marginTop: 3 }}>
+                    {opt.desc}
+                  </div>
+                </button>
+              ))}
+            </div>
+          </Field>
+
+          {/* Browser-specific options */}
+          {printMode === "browser" && (
+            <>
+              <Field label="RawBT para Android">
+                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                  <Toggle checked={rawbtEnabled} onChange={setRawbtEnabled} disabled={!canManage} />
+                  <span style={{ fontSize: 13, color: "var(--admin-text-secondary)" }}>
+                    {rawbtEnabled
+                      ? "Activo — abre la app RawBT directamente"
+                      : "Inactivo — usa ventana de impresión del navegador"}
+                  </span>
+                </div>
+              </Field>
+            </>
+          )}
+
+          {/* Desktop app options */}
+          {printMode === "desktop_app" && (
+            <>
+              <Field label="URL de la app local" hint="(por defecto: http://127.0.0.1:18181/print)">
+                <input
+                  className="settings-input"
+                  type="url"
+                  value={localPrintUrl}
+                  onChange={(e) => { setLocalPrintUrl(e.target.value); }}
+                  disabled={!canManage}
+                  placeholder="http://127.0.0.1:18181/print"
+                  style={inputStyle}
+                />
+              </Field>
+              <Field label="Impresora cliente" hint="(nombre exacto de la impresora en Windows)">
+                <input
+                  className="settings-input"
+                  type="text"
+                  value={customerPrinterName}
+                  onChange={(e) => { setCustomerPrinterName(e.target.value); }}
+                  disabled={!canManage}
+                  placeholder="Epson TM-T88V"
+                  style={inputStyle}
+                />
+              </Field>
+              <Field label="Impresora cocina" hint="(dejar vacío para usar la misma)">
+                <input
+                  className="settings-input"
+                  type="text"
+                  value={kitchenPrinterName}
+                  onChange={(e) => { setKitchenPrinterName(e.target.value); }}
+                  disabled={!canManage}
+                  placeholder="Star TSP100"
+                  style={inputStyle}
+                />
+              </Field>
+              <PrintAppDownload
+                localPrintUrl={localPrintUrl}
+                onTestConnection={() => { void testConnection(); }}
+                testingConnection={testingConnection}
+                connectionStatus={connectionStatus}
+              />
+            </>
+          )}
+
+          {/* Auto-print triggers */}
+          <Field label="Impresión automática">
+            <div style={{ display: "grid", gap: 10 }}>
+              {(
+                [
+                  {
+                    id: "printOnNewOrder",
+                    label: "Imprimir al recibir pedido web",
+                    value: printOnNewOrder,
+                    set: setPrintOnNewOrder,
+                  },
+                  {
+                    id: "printOnAccept",
+                    label: "Imprimir al aceptar pedido",
+                    value: printOnAccept,
+                    set: setPrintOnAccept,
+                  },
+                  {
+                    id: "autoPrintPosOrders",
+                    label: "Imprimir automáticamente en TPV",
+                    value: autoPrintPosOrders,
+                    set: setAutoPrintPosOrders,
+                  },
+                ] as const
+              ).map((row) => (
+                <div
+                  key={row.id}
+                  className="payment-row"
+                  style={{ display: "flex", alignItems: "center", gap: 14 }}
+                >
+                  <Toggle
+                    checked={row.value}
+                    onChange={row.set}
+                    disabled={!canManage}
+                  />
+                  <span style={{ fontSize: 13, color: "var(--admin-text-primary)" }}>
+                    {row.label}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </Field>
+
+          {/* Ticket width */}
+          <Field label="Ancho del ticket">
+            <div style={{ display: "flex", gap: 8 }}>
+              {(["58mm", "80mm"] as const).map((w) => (
+                <button
+                  key={w}
+                  type="button"
+                  onClick={() => { if (canManage) setPrintWidth(w); }}
+                  style={{
+                    border: `2px solid ${printWidth === w ? "var(--brand-primary)" : "var(--admin-card-border)"}`,
+                    borderRadius: 8,
+                    padding: "6px 16px",
+                    background: printWidth === w ? "var(--brand-primary-soft)" : "#fff",
+                    color: printWidth === w ? "var(--brand-hover)" : "var(--admin-text-primary)",
+                    fontWeight: printWidth === w ? 700 : 400,
+                    fontSize: 13,
+                    cursor: canManage ? "pointer" : "not-allowed",
+                    opacity: canManage ? 1 : 0.6,
+                  }}
+                >
+                  {w}
+                </button>
+              ))}
+            </div>
+          </Field>
+
+          <div style={{ display: "flex", justifyContent: "flex-end" }}>
+            <SaveButton
+              onClick={() => { void savePrinting(); }}
+              saving={savingPrinting}
+              disabled={!canSave}
+            />
+          </div>
+        </Card>
+        </div>
+
+        {/* ── Marketing ── */}
+        <div style={{ display: activeTab === "marketing" ? "grid" : "none", gap: 16 }}>
+
+          {/* ── Chatbot de WhatsApp ── */}
+          <Card
+            title="Chatbot de WhatsApp"
+            subtitle="Configura notificaciones por WhatsApp para confirmar pedidos con tus clientes"
+          >
+            {/* Toggle principal */}
+            <Field label="Activar notificaciones WhatsApp">
+              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                <Toggle
+                  checked={whatsappEnabled}
+                  onChange={setWhatsappEnabled}
+                  disabled={!canSave}
+                />
+                <span style={{ fontSize: 13, color: "var(--admin-text-secondary)" }}>
+                  {whatsappEnabled
+                    ? "Activo — los clientes verán el botón de WhatsApp al finalizar su pedido"
+                    : "Inactivo"}
+                </span>
+              </div>
+            </Field>
+
+            {whatsappEnabled && (
+              <>
+                {/* Número del restaurante */}
+                <Field
+                  label="Número de WhatsApp del restaurante"
+                  hint="Con código de país, sin espacios (ej. +34612345678)"
+                >
+                  <input
+                    style={inputStyle}
+                    type="tel"
+                    value={whatsappPhone}
+                    onChange={(e) => setWhatsappPhone(e.target.value)}
+                    placeholder="+34 612 345 678"
+                    disabled={!canSave}
+                  />
+                  <span style={{ fontSize: 12, color: "var(--admin-text-secondary)", marginTop: 4, display: "block" }}>
+                    Los clientes verán este número para confirmar pedidos
+                  </span>
+                </Field>
+
+                {/* Plantilla del mensaje */}
+                <Field label="Plantilla de mensaje al cliente">
+                  <textarea
+                    style={{ ...inputStyle, resize: "vertical", minHeight: 110, fontFamily: "monospace", fontSize: 13 }}
+                    value={whatsappTemplate}
+                    onChange={(e) => setWhatsappTemplate(e.target.value)}
+                    disabled={!canSave}
+                  />
+                  <div
+                    style={{
+                      fontSize: 12,
+                      color: "var(--admin-text-secondary)",
+                      marginTop: 4,
+                      lineHeight: 1.6,
+                    }}
+                  >
+                    Variables disponibles:{" "}
+                    {[
+                      "{order_number}",
+                      "{customer_name}",
+                      "{total}",
+                      "{estimated_time}",
+                      "{restaurant_name}",
+                      "{items_list}",
+                      "{order_type}",
+                    ].map((v) => (
+                      <code
+                        key={v}
+                        style={{
+                          background: "#f3f4f6",
+                          borderRadius: 4,
+                          padding: "1px 5px",
+                          fontSize: 11,
+                          fontFamily: "monospace",
+                          marginRight: 4,
+                        }}
+                      >
+                        {v}
+                      </code>
+                    ))}
+                  </div>
+                </Field>
+
+                {/* Vista previa del mensaje */}
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: "#6b7280", marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                    Vista previa del mensaje
+                  </div>
+                  <div
+                    style={{
+                      background: "#dcf8c6",
+                      border: "1px solid #b5e7a0",
+                      borderRadius: 12,
+                      borderBottomRightRadius: 2,
+                      padding: "10px 14px",
+                      maxWidth: 340,
+                      fontSize: 13,
+                      lineHeight: 1.6,
+                      whiteSpace: "pre-wrap",
+                      color: "#1a1a1a",
+                      boxShadow: "0 2px 6px rgba(0,0,0,0.06)",
+                    }}
+                  >
+                    {buildOrderConfirmationMessage(
+                      {
+                        id: "demo-order-abc123",
+                        customer_name: "María García",
+                        items: [
+                          { name: "Kebab mixto", quantity: 2 },
+                          { name: "Fanta naranja", quantity: 1 },
+                        ],
+                        total: 18.5,
+                        order_type: "delivery",
+                        estimated_minutes: 30,
+                      },
+                      restaurantName || "Mi Restaurante",
+                      whatsappTemplate || DEFAULT_WHATSAPP_TEMPLATE
+                    )}
+                  </div>
+                </div>
+
+                {/* Proveedor */}
+                <Field label="Proveedor de envío">
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
+                    {(
+                      [
+                        { value: "link" as const, label: "WhatsApp Link", desc: "Activo — el cliente pulsa el botón", active: true },
+                        { value: "twilio" as const, label: "Twilio", desc: "Próximamente — requiere configuración", active: false },
+                        { value: "360dialog" as const, label: "360dialog", desc: "Próximamente — requiere configuración", active: false },
+                      ] as const
+                    ).map((opt) => (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        onClick={() => { if (canSave && opt.active) setWhatsappProvider(opt.value); }}
+                        style={{
+                          border: `2px solid ${whatsappProvider === opt.value ? "var(--brand-primary)" : "var(--admin-card-border)"}`,
+                          borderRadius: 10,
+                          padding: "10px 12px",
+                          textAlign: "left",
+                          cursor: opt.active && canSave ? "pointer" : "not-allowed",
+                          background: whatsappProvider === opt.value
+                            ? "var(--brand-primary-soft)"
+                            : opt.active ? "#fff" : "#f9fafb",
+                          opacity: opt.active ? 1 : 0.55,
+                          transition: "all 0.15s",
+                        }}
+                      >
+                        <div style={{ fontWeight: 700, fontSize: 13, color: "var(--admin-text-primary)" }}>
+                          {opt.label}
+                        </div>
+                        <div style={{ fontSize: 11, color: "var(--admin-text-secondary)", marginTop: 3, lineHeight: 1.4 }}>
+                          {opt.desc}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                  {whatsappProvider === "link" && (
+                    <div
+                      style={{
+                        fontSize: 12,
+                        color: "var(--admin-text-secondary)",
+                        marginTop: 8,
+                        padding: "8px 12px",
+                        background: "#f8fafc",
+                        borderRadius: 8,
+                        border: "1px solid #e5e7eb",
+                        lineHeight: 1.5,
+                      }}
+                    >
+                      Con <strong>WhatsApp Link</strong> el cliente debe pulsar el botón para enviar el mensaje.{" "}
+                      Con <strong>API</strong> el mensaje se envía automáticamente (requiere cuenta Twilio o 360dialog).
+                    </div>
+                  )}
+                </Field>
+
+                {/* Botón de prueba */}
+                {whatsappPhone.trim() && (
+                  <div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const msg = buildOrderConfirmationMessage(
+                          {
+                            id: "test-order-abc123",
+                            customer_name: "Cliente de prueba",
+                            items: [],
+                            total: 15.0,
+                            order_type: "pickup",
+                            estimated_minutes: 20,
+                          },
+                          restaurantName || "Mi Restaurante",
+                          whatsappTemplate || DEFAULT_WHATSAPP_TEMPLATE
+                        );
+                        window.open(
+                          `https://wa.me/${whatsappPhone.replace(/[\s\-\(\)]/g, "")}?text=${encodeURIComponent(msg)}`,
+                          "_blank",
+                          "noopener,noreferrer"
+                        );
+                      }}
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 8,
+                        background: "#25d366",
+                        color: "#fff",
+                        border: "none",
+                        borderRadius: 10,
+                        padding: "9px 16px",
+                        fontSize: 13,
+                        fontWeight: 700,
+                        cursor: "pointer",
+                      }}
+                    >
+                      <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+                        <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z"/>
+                      </svg>
+                      Probar configuración
+                    </button>
+                    <span style={{ fontSize: 12, color: "var(--admin-text-muted)", marginLeft: 10 }}>
+                      Abre WhatsApp con un mensaje de prueba al número configurado
+                    </span>
+                  </div>
+                )}
+              </>
+            )}
+
+            <div style={{ display: "flex", justifyContent: "flex-end" }}>
+              <SaveButton
+                onClick={() => { void saveWhatsapp(); }}
+                saving={savingWhatsapp}
+                disabled={!canSave}
+              />
+            </div>
+          </Card>
+
+        </div>
+      </section>
       </section>
 
       {/* ── Toasts ── */}
@@ -1704,3 +2517,23 @@ export default function AdminSettingsPage() {
     </>
   );
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

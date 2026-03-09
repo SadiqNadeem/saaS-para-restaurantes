@@ -32,10 +32,21 @@ Deno.serve(async (req) => {
     const siteUrl = Deno.env.get("SITE_URL") ?? Deno.env.get("VITE_SITE_URL") ?? "http://localhost:5173";
 
     if (!stripeSecretKey || !supabaseUrl || !supabaseServiceRoleKey) {
-      return new Response(JSON.stringify({ error: "Missing server environment variables" }), {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return new Response(
+        JSON.stringify({
+          error: "Stripe no configurado",
+          code: "STRIPE_NOT_CONFIGURED",
+          missing: [
+            !stripeSecretKey ? "STRIPE_SECRET_KEY" : null,
+            !supabaseUrl ? "SUPABASE_URL" : null,
+            !supabaseServiceRoleKey ? "SUPABASE_SERVICE_ROLE_KEY" : null,
+          ].filter(Boolean),
+        }),
+        {
+          status: 503,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        }
+      );
     }
 
     const body = (await req.json().catch(() => ({}))) as { order_id?: string; slug?: string };

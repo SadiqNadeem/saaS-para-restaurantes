@@ -1,6 +1,6 @@
 export type OrderType = "pickup" | "delivery";
 
-export type PaymentMethod = "cash" | "card_on_delivery" | "card_online";
+export type PaymentMethod = "cash" | "card_on_delivery" | "stripe_online" | "card_online";
 
 export type CheckoutStep = "customer" | "type" | "delivery" | "payment" | "review";
 
@@ -43,7 +43,7 @@ export type CheckoutPayment =
       method: "card_on_delivery";
     }
   | {
-      method: "card_online";
+      method: "stripe_online" | "card_online";
     };
 
 export type CheckoutDraft = {

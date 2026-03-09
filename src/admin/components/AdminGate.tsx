@@ -3,9 +3,17 @@ import { useEffect, useState } from "react";
 import { useAuth } from "../../auth/AuthContext";
 import { supabase } from "../../lib/supabase";
 import { useRestaurant } from "../../restaurant/RestaurantContext";
-import { AdminMembershipProvider, type RestaurantRole } from "./AdminMembershipContext";
+import { AdminMembershipProvider, type JobRole, type RestaurantRole } from "./AdminMembershipContext";
 
 type GateStatus = "forbidden" | "rls" | "restaurant_not_found" | null;
+
+type MemberRow = {
+  role: RestaurantRole;
+  access_role: RestaurantRole;
+  job_role: JobRole | null;
+  is_active: boolean;
+  display_name: string | null;
+};
 
 function isRlsError(error: { code?: string | null; message?: string | null } | null | undefined) {
   const message = String(error?.message ?? "").toLowerCase();
@@ -18,8 +26,7 @@ function AdminGate({ children }: { children: React.ReactNode }) {
   const { session } = useAuth();
 
   const [loading, setLoading] = useState(true);
-
-  const [membershipRole, setMembershipRole] = useState<RestaurantRole | null>(null);
+  const [memberRow, setMemberRow] = useState<MemberRow | null>(null);
   const [gateStatus, setGateStatus] = useState<GateStatus>(null);
   const [gateMessage, setGateMessage] = useState<string | null>(null);
 
@@ -29,7 +36,7 @@ function AdminGate({ children }: { children: React.ReactNode }) {
     const loadMembership = async () => {
       if (!session) {
         if (!alive) return;
-        setMembershipRole(null);
+        setMemberRow(null);
         setGateStatus(null);
         setGateMessage(null);
         setLoading(false);
@@ -38,7 +45,7 @@ function AdminGate({ children }: { children: React.ReactNode }) {
 
       if (!restaurantId) {
         if (!alive) return;
-        setMembershipRole(null);
+        setMemberRow(null);
         setGateStatus("restaurant_not_found");
         setGateMessage("No tienes restaurante asignado.");
         setLoading(false);
@@ -50,7 +57,7 @@ function AdminGate({ children }: { children: React.ReactNode }) {
       setGateMessage(null);
 
       if (isSuperadmin) {
-        setMembershipRole("owner");
+        setMemberRow({ role: "owner", access_role: "owner", job_role: null, is_active: true, display_name: null });
         setLoading(false);
         return;
       }
@@ -59,7 +66,7 @@ function AdminGate({ children }: { children: React.ReactNode }) {
 
       if (authUserError || !authUserData?.user?.id) {
         if (!alive) return;
-        setMembershipRole(null);
+        setMemberRow(null);
         setLoading(false);
         return;
       }
@@ -68,10 +75,10 @@ function AdminGate({ children }: { children: React.ReactNode }) {
 
       const { data, error } = await supabase
         .from("restaurant_members")
-        .select("role")
+        .select("role, access_role, job_role, is_active, display_name")
         .eq("user_id", userId)
         .eq("restaurant_id", restaurantId)
-        .maybeSingle<{ role: RestaurantRole }>();
+        .maybeSingle<MemberRow>();
 
       if (!alive) return;
 
@@ -81,22 +88,22 @@ function AdminGate({ children }: { children: React.ReactNode }) {
           setGateMessage("RLS bloquea lectura de restaurant_members");
         } else {
           setGateStatus("forbidden");
-          setGateMessage(`No se pudo verificar membresia: ${error.message}`);
+          setGateMessage(`No se pudo verificar membresía: ${error.message}`);
         }
-        setMembershipRole(null);
+        setMemberRow(null);
         setLoading(false);
         return;
       }
 
-      if (!data?.role) {
+      if (!data?.access_role) {
         setGateStatus("forbidden");
         setGateMessage("No tienes acceso al admin de este restaurante.");
-        setMembershipRole(null);
+        setMemberRow(null);
         setLoading(false);
         return;
       }
 
-      setMembershipRole(data.role);
+      setMemberRow(data);
       setLoading(false);
     };
 
@@ -119,17 +126,20 @@ function AdminGate({ children }: { children: React.ReactNode }) {
     );
   }
 
-  if (!membershipRole) {
+  if (!memberRow) {
     return <div style={{ padding: 16 }}>Verificando permisos...</div>;
   }
 
   return (
-    <div style={{ padding: 16 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 12 }}>
-        <span>Rol: {membershipRole}</span>
-      </div>
-      <AdminMembershipProvider role={membershipRole}>{children}</AdminMembershipProvider>
-    </div>
+    <AdminMembershipProvider
+      role={memberRow.role}
+      accessRole={memberRow.access_role}
+      jobRole={memberRow.job_role}
+      isActive={memberRow.is_active}
+      displayName={memberRow.display_name}
+    >
+      {children}
+    </AdminMembershipProvider>
   );
 }
 

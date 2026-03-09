@@ -70,50 +70,30 @@ export default function PosGate({ children }: { children: React.ReactNode }) {
 
       const { data, error } = await supabase
         .from("restaurant_members")
-        .select("role")
+        .select("access_role")
         .eq("user_id", authData.user.id)
         .eq("restaurant_id", restaurantId)
-        .maybeSingle<{ role: string }>();
+        .maybeSingle<{ access_role: string }>();
 
       if (!alive) return;
 
       if (error) {
-        if (import.meta.env.DEV) {
-          console.debug("[PosGate] membership query error", {
-            userId: authData.user.id,
-            restaurantId,
-            code: error.code,
-            message: error.message,
-          });
-        }
         setGateStatus(isRlsError(error) ? "rls" : "forbidden");
         setGateMessage(
           isRlsError(error)
             ? "RLS bloquea la lectura de restaurant_members."
-            : `No se pudo verificar membresÃ­a: ${error.message}`
+            : `No se pudo verificar membresía: ${error.message}`
         );
         setLoading(false);
         return;
       }
 
-      const role = String(data?.role ?? "").trim().toLowerCase();
-      if (import.meta.env.DEV) {
-        console.debug("[PosGate] membership resolved", {
-          userId: authData.user.id,
-          restaurantId,
-          role,
-          hasMembership: Boolean(data),
-        });
-      }
+      const role = String(data?.access_role ?? "").trim().toLowerCase();
       if (POS_ALLOWED_ROLES.has(role)) {
         setAllowed(true);
       } else {
         setGateStatus("forbidden");
-        setGateMessage(
-          role === "staff"
-            ? "El rol 'staff' no tiene acceso al TPV. Contacta al propietario."
-            : "No tienes acceso al TPV de este restaurante."
-        );
+        setGateMessage("No tienes acceso al TPV de este restaurante.");
       }
 
       setLoading(false);

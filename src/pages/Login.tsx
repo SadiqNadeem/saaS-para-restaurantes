@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 
+import { maybeCreateRestaurantFromPendingSignup } from "../auth/pendingSignup";
 import { useAuth } from "../auth/AuthContext";
 import { supabase } from "../lib/supabase";
 
@@ -14,6 +15,7 @@ export default function Login() {
   const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [info, setInfo] = useState<string | null>(null);
 
   const next = useMemo(() => {
     const params = new URLSearchParams(location.search);
@@ -22,9 +24,16 @@ export default function Login() {
   }, [location.search]);
 
   useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    if (params.get("verified") === "1") {
+      setInfo("Email verificado correctamente. Ya puedes iniciar sesión.");
+    }
+  }, [location.search]);
+
+  useEffect(() => {
     if (!loading && session && !redirectedRef.current) {
       redirectedRef.current = true;
-      navigate(next ?? "/admin", { replace: true });
+      navigate(next ?? "/", { replace: true });
     }
   }, [loading, navigate, next, session]);
 
@@ -32,17 +41,37 @@ export default function Login() {
     event.preventDefault();
     if (loading) return;
     setError(null);
+    setInfo(null);
     setSubmitting(true);
 
     const { error: signInError } = await supabase.auth.signInWithPassword({ email, password });
 
     if (signInError) {
-      setError(signInError.message);
+      const code = String((signInError as { code?: string }).code ?? "").toLowerCase();
+      const message = signInError.message.toLowerCase();
+
+      if (code === "email_not_confirmed" || message.includes("email not confirmed")) {
+        setError("Tu email aún no está verificado. Revisa tu correo y confirma tu cuenta antes de entrar.");
+      } else {
+        setError(signInError.message);
+      }
+
       setSubmitting(false);
       return;
     }
 
-    navigate(next ?? "/admin", { replace: true });
+    redirectedRef.current = true;
+
+    const pendingResult = await maybeCreateRestaurantFromPendingSignup(email.trim());
+    if (pendingResult.status === "created" && !next) {
+      navigate(
+        `/onboarding?restaurant=${pendingResult.slug}&name=${encodeURIComponent(pendingResult.restaurantName)}`,
+        { replace: true }
+      );
+      return;
+    }
+
+    navigate(next ?? "/", { replace: true });
   };
 
   if (loading) {
@@ -97,6 +126,7 @@ export default function Login() {
           />
         </label>
 
+        {info ? <p style={{ margin: 0, color: "#065f46", fontSize: 13 }}>{info}</p> : null}
         {error ? <p style={{ margin: 0, color: "#b91c1c" }}>{error}</p> : null}
 
         <button
@@ -113,6 +143,18 @@ export default function Login() {
         >
           {submitting ? "Entrando..." : "Entrar"}
         </button>
+
+        <div style={{ display: "grid", gap: 8, justifyItems: "center", paddingTop: 4 }}>
+          <p style={{ margin: 0, fontSize: 13, color: "#374151" }}>
+            ¿No tienes cuenta?{" "}
+            <Link to="/register" style={{ color: "#111827", fontWeight: 600, textDecoration: "none" }}>
+              Regístrate
+            </Link>
+          </p>
+          <Link to="/forgot-password" style={{ fontSize: 13, color: "#6b7280", textDecoration: "none" }}>
+            ¿Has olvidado tu contraseña?
+          </Link>
+        </div>
       </form>
     </div>
   );

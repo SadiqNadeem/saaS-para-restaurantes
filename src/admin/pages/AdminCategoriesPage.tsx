@@ -63,6 +63,19 @@ function SortableCategoryItem({
     id: row.id,
     disabled,
   });
+  const actionsDisabled = disabled || isSaving;
+  const actionButtonBase = {
+    borderRadius: 10,
+    padding: "8px 12px",
+    cursor: actionsDisabled ? "not-allowed" : "pointer",
+    fontSize: 13,
+    fontWeight: 600,
+    minHeight: 36,
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    whiteSpace: "nowrap" as const,
+  };
 
   return (
     <article
@@ -70,22 +83,62 @@ function SortableCategoryItem({
       style={{
         transform: CSS.Transform.toString(transform),
         transition,
-        opacity: isDragging ? 0.65 : 1,
+        opacity: isDragging ? 0.72 : 1,
         border: "1px solid #e5e7eb",
-        borderRadius: 12,
-        padding: 12,
+        borderRadius: 16,
+        padding: 14,
         background: "#fff",
         display: "grid",
-        gap: 10,
+        gap: 12,
+        boxShadow: isDragging ? "0 10px 26px rgba(17,24,39,0.14)" : "0 4px 14px rgba(17,24,39,0.06)",
       }}
     >
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-        <div style={{ minWidth: 0 }}>
-          <div style={{ fontWeight: 700, color: "#111827", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
+        <div style={{ minWidth: 0, display: "grid", gap: 6 }}>
+          <div
+            style={{
+              fontWeight: 800,
+              fontSize: 15,
+              lineHeight: 1.2,
+              color: "#111827",
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+            }}
+          >
             {row.name}
           </div>
-          <div style={{ fontSize: 12, color: "#6b7280" }}>
-            {productCount} producto{productCount !== 1 ? "s" : ""}
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <span
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                borderRadius: 999,
+                border: "1px solid #e5e7eb",
+                background: "#f9fafb",
+                padding: "3px 8px",
+                fontSize: 12,
+                color: "#374151",
+                fontWeight: 600,
+              }}
+            >
+              {productCount} producto{productCount !== 1 ? "s" : ""}
+            </span>
+            <span
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                borderRadius: 999,
+                border: row.is_active ? "1px solid #bbf7d0" : "1px solid #e5e7eb",
+                background: row.is_active ? "#f0fdf4" : "#f9fafb",
+                color: row.is_active ? "#166534" : "#6b7280",
+                padding: "3px 8px",
+                fontSize: 12,
+                fontWeight: 700,
+              }}
+            >
+              {row.is_active ? "Activa" : "Inactiva"}
+            </span>
           </div>
         </div>
 
@@ -97,61 +150,126 @@ function SortableCategoryItem({
           style={{
             border: "1px solid #d1d5db",
             background: "#fff",
-            borderRadius: 8,
-            padding: "6px 10px",
+            borderRadius: 10,
+            padding: "7px 11px",
             cursor: disabled ? "not-allowed" : "grab",
+            fontSize: 12,
+            fontWeight: 600,
+            color: "#374151",
+            flexShrink: 0,
           }}
         >
           Arrastrar
         </button>
       </div>
 
-      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-        <label style={{ display: "inline-flex", alignItems: "center", gap: 6, color: "#374151" }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 10,
+          flexWrap: "wrap",
+          paddingTop: 10,
+          borderTop: "1px solid #f3f4f6",
+        }}
+      >
+        <label
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 10,
+            color: "#374151",
+            fontSize: 13,
+            minHeight: 36,
+            padding: "4px 2px",
+            cursor: actionsDisabled ? "not-allowed" : "pointer",
+          }}
+        >
           <input
             type="checkbox"
             checked={row.is_active}
-            disabled={disabled || isSaving}
+            disabled={actionsDisabled}
             onChange={() => onToggle(row)}
+            style={{
+              position: "absolute",
+              opacity: 0,
+              pointerEvents: "none",
+              width: 0,
+              height: 0,
+            }}
           />
-          Activa
+          <span
+            aria-hidden
+            style={{
+              width: 40,
+              height: 22,
+              borderRadius: 999,
+              background: row.is_active ? "#22c55e" : "#d1d5db",
+              border: row.is_active ? "1px solid #16a34a" : "1px solid #cbd5e1",
+              padding: 2,
+              display: "inline-flex",
+              alignItems: "center",
+              transition: "background 0.18s ease, border-color 0.18s ease",
+              opacity: actionsDisabled ? 0.7 : 1,
+              flexShrink: 0,
+            }}
+          >
+            <span
+              style={{
+                width: 16,
+                height: 16,
+                borderRadius: 999,
+                background: "#fff",
+                boxShadow: "0 1px 3px rgba(17,24,39,0.25)",
+                transform: row.is_active ? "translateX(18px)" : "translateX(0)",
+                transition: "transform 0.18s ease",
+              }}
+            />
+          </span>
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+            <strong style={{ fontSize: 13, color: "#111827", fontWeight: 700 }}>
+              {row.is_active ? "Activa" : "Inactiva"}
+            </strong>
+            <span style={{ color: "#6b7280" }}>en menú</span>
+          </span>
         </label>
 
-        <button
-          type="button"
-          onClick={() => onEdit(row)}
-          disabled={disabled || isSaving}
-          style={{
-            border: "1px solid #d1d5db",
-            background: "#fff",
-            borderRadius: 8,
-            padding: "6px 10px",
-            cursor: disabled || isSaving ? "not-allowed" : "pointer",
-          }}
-        >
-          Editar
-        </button>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginLeft: "auto" }}>
+          <button
+            type="button"
+            onClick={() => onEdit(row)}
+            disabled={actionsDisabled}
+            style={{
+              ...actionButtonBase,
+              border: "1px solid #d1d5db",
+              background: "#fff",
+              color: "#374151",
+              opacity: actionsDisabled ? 0.7 : 1,
+            }}
+          >
+            Editar
+          </button>
 
-        <button
-          type="button"
-          onClick={() => onDelete(row)}
-          disabled={disabled || isSaving}
-          style={{
-            border: "1px solid #fecaca",
-            background: "#fef2f2",
-            color: "#991b1b",
-            borderRadius: 8,
-            padding: "6px 10px",
-            cursor: disabled || isSaving ? "not-allowed" : "pointer",
-          }}
-        >
-          Eliminar
-        </button>
+          <button
+            type="button"
+            onClick={() => onDelete(row)}
+            disabled={actionsDisabled}
+            style={{
+              ...actionButtonBase,
+              border: "1px solid #fecaca",
+              background: "#fef2f2",
+              color: "#991b1b",
+              opacity: actionsDisabled ? 0.7 : 1,
+            }}
+          >
+            Eliminar
+          </button>
+        </div>
       </div>
     </article>
   );
 }
-
 export default function AdminCategoriesPage() {
   const { restaurantId } = useRestaurant();
   const { canManage } = useAdminMembership();
@@ -228,6 +346,8 @@ export default function AdminCategoriesPage() {
 
   const rowIds = useMemo(() => rows.map((row) => row.id), [rows]);
   const isBusy = reordering || submittingModal || Boolean(savingId);
+  const activeCount = useMemo(() => rows.filter((row) => row.is_active).length, [rows]);
+  const inactiveCount = rows.length - activeCount;
 
   const openCreateModal = () => {
     setNameDraft("");
@@ -400,37 +520,126 @@ export default function AdminCategoriesPage() {
   };
 
   return (
-    <section style={{ display: "grid", gap: 16 }}>
+    <section
+      style={{
+        width: "100%",
+        maxWidth: 1120,
+        margin: "0 auto",
+        display: "grid",
+        gap: 18,
+      }}
+    >
       <header
         style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          gap: 10,
-          flexWrap: "wrap",
+          display: "grid",
+          gap: 14,
+          border: "1px solid #e5e7eb",
+          borderRadius: 16,
+          padding: "16px clamp(14px, 2vw, 22px)",
+          background:
+            "linear-gradient(135deg, rgba(255,255,255,1) 0%, rgba(249,250,251,1) 60%, rgba(243,244,246,1) 100%)",
+          boxShadow: "0 8px 28px rgba(17,24,39,0.04)",
         }}
       >
-        <div>
-          <h2 style={{ margin: 0 }}>Categorias</h2>
-          <p style={{ margin: "4px 0 0", color: "#6b7280" }}>Organiza y muestra tus categorias</p>
-        </div>
-
-        <button
-          type="button"
-          onClick={openCreateModal}
-          disabled={!canManage || isBusy}
+        <div
           style={{
-            borderRadius: 10,
-            border: "1px solid var(--brand-primary)",
-            background: "var(--brand-primary)",
-            color: "var(--brand-white)",
-            padding: "8px 12px",
-            cursor: !canManage || isBusy ? "not-allowed" : "pointer",
-            opacity: !canManage || isBusy ? 0.6 : 1,
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "flex-start",
+            gap: 12,
+            flexWrap: "wrap",
           }}
         >
-          + Categoria
-        </button>
+          <div style={{ display: "grid", gap: 6, minWidth: 0 }}>
+            <span
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                width: "fit-content",
+                padding: "4px 10px",
+                borderRadius: 999,
+                background: "rgba(17,24,39,0.06)",
+                color: "#374151",
+                fontSize: 12,
+                fontWeight: 700,
+                letterSpacing: "0.02em",
+              }}
+            >
+              MENÚ
+            </span>
+            <h1
+              style={{
+                margin: 0,
+                fontSize: "clamp(1.45rem, 2.4vw, 1.9rem)",
+                lineHeight: 1.15,
+                color: "#111827",
+                fontWeight: 800,
+                letterSpacing: "-0.01em",
+              }}
+            >
+              Categorías
+            </h1>
+            <p
+              style={{
+                margin: 0,
+                color: "#4b5563",
+                maxWidth: 680,
+                fontSize: 14,
+                lineHeight: 1.45,
+              }}
+            >
+              Organiza la carta por bloques para que el menú público y el panel se mantengan claros,
+              ordenados y fáciles de navegar.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={openCreateModal}
+            disabled={!canManage || isBusy}
+            style={{
+              height: 40,
+              borderRadius: 10,
+              border: "1px solid var(--brand-primary)",
+              background: "var(--brand-primary)",
+              color: "var(--brand-white)",
+              padding: "0 14px",
+              fontWeight: 700,
+              fontSize: 14,
+              cursor: !canManage || isBusy ? "not-allowed" : "pointer",
+              opacity: !canManage || isBusy ? 0.6 : 1,
+              boxShadow: "0 6px 18px rgba(17,24,39,0.14)",
+              whiteSpace: "nowrap",
+              alignSelf: "flex-start",
+            }}
+          >
+            + Categoría
+          </button>
+        </div>
+
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+          {[
+            { label: "Total", value: rows.length },
+            { label: "Activas", value: activeCount },
+            { label: "Ocultas", value: inactiveCount },
+          ].map((stat) => (
+            <div
+              key={stat.label}
+              style={{
+                minWidth: 112,
+                borderRadius: 11,
+                border: "1px solid #e5e7eb",
+                background: "#fff",
+                padding: "9px 11px",
+                display: "grid",
+                gap: 2,
+              }}
+            >
+              <span style={{ fontSize: 12, color: "#6b7280", fontWeight: 600 }}>{stat.label}</span>
+              <strong style={{ fontSize: 17, lineHeight: 1.1, color: "#111827" }}>{stat.value}</strong>
+            </div>
+          ))}
+        </div>
       </header>
 
       {error ? (
@@ -452,7 +661,7 @@ export default function AdminCategoriesPage() {
       ) : null}
 
       {!loading && rows.length === 0 ? (
-        <div className="admin-card">
+        <div className="admin-card" style={{ minHeight: 280, display: "grid", alignItems: "center" }}>
           <AdminEmptyState
             icon="🗂️"
             title="No hay categorías aún"
@@ -464,24 +673,52 @@ export default function AdminCategoriesPage() {
       ) : null}
 
       {!loading && rows.length > 0 ? (
-        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-          <SortableContext items={rowIds} strategy={verticalListSortingStrategy}>
-            <div style={{ display: "grid", gap: 10 }}>
-              {rows.map((row) => (
-                <SortableCategoryItem
-                  key={row.id}
-                  row={row}
-                  disabled={!canManage || isBusy}
-                  onEdit={openEditModal}
-                  onDelete={(item) => void deleteCategory(item)}
-                  onToggle={(item) => void toggleActive(item)}
-                  isSaving={savingId === row.id}
-                  productCount={productCounts[row.id] ?? 0}
-                />
-              ))}
-            </div>
-          </SortableContext>
-        </DndContext>
+        <div
+          style={{
+            border: "1px solid #e5e7eb",
+            borderRadius: 14,
+            background: "#fff",
+            padding: "12px clamp(10px, 1.8vw, 18px) 14px",
+            display: "grid",
+            gap: 10,
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              gap: 10,
+              flexWrap: "wrap",
+              padding: "2px 4px 8px",
+              borderBottom: "1px solid #f3f4f6",
+            }}
+          >
+            <strong style={{ color: "#111827", fontSize: 14 }}>Listado de categorías</strong>
+            <span style={{ color: "#6b7280", fontSize: 12 }}>
+              Arrastra para reordenar la visualización del menú
+            </span>
+          </div>
+
+          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+            <SortableContext items={rowIds} strategy={verticalListSortingStrategy}>
+              <div style={{ display: "grid", gap: 10 }}>
+                {rows.map((row) => (
+                  <SortableCategoryItem
+                    key={row.id}
+                    row={row}
+                    disabled={!canManage || isBusy}
+                    onEdit={openEditModal}
+                    onDelete={(item) => void deleteCategory(item)}
+                    onToggle={(item) => void toggleActive(item)}
+                    isSaving={savingId === row.id}
+                    productCount={productCounts[row.id] ?? 0}
+                  />
+                ))}
+              </div>
+            </SortableContext>
+          </DndContext>
+        </div>
       ) : null}
 
       {modal ? (

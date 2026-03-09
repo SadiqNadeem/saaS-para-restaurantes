@@ -118,59 +118,84 @@ function SortableProductCard({
       style={{
         transform: CSS.Transform.toString(transform),
         transition,
-        opacity: isDragging ? 0.65 : 1,
-        border: "1px solid #e5e7eb",
-        borderRadius: 12,
-        padding: 12,
+        opacity: isDragging ? 0.72 : 1,
+        border: "1px solid #e2e8f0",
+        borderRadius: 16,
+        padding: 16,
         display: "grid",
-        gap: 10,
-        background: "#fff",
+        gap: 14,
+        background: "linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)",
+        boxShadow: isDragging ? "0 10px 24px rgba(15, 23, 42, 0.12)" : "0 3px 10px rgba(15, 23, 42, 0.06)",
       }}
     >
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
-        <div style={{ display: "flex", alignItems: "flex-start", gap: 10, minWidth: 0 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 14 }}>
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 12, minWidth: 0 }}>
           {row.image_url ? (
             <img
               src={row.image_url}
               alt={row.name}
-              style={{ width: 40, height: 40, objectFit: "cover", borderRadius: 6, flexShrink: 0 }}
+              style={{
+                width: 62,
+                height: 62,
+                objectFit: "cover",
+                borderRadius: 12,
+                flexShrink: 0,
+                border: "1px solid #e2e8f0",
+              }}
             />
           ) : (
             <div
               style={{
-                width: 40,
-                height: 40,
-                borderRadius: 6,
-                background: "#f3f4f6",
-                border: "1px solid #e5e7eb",
+                width: 62,
+                height: 62,
+                borderRadius: 12,
+                background: "#f1f5f9",
+                border: "1px solid #dbe2ea",
                 display: "grid",
                 placeItems: "center",
                 flexShrink: 0,
               }}
             >
-              <span style={{ fontSize: 10, color: "#9ca3af" }}>IMG</span>
+              <span style={{ fontSize: 11, color: "#94a3b8", fontWeight: 600 }}>IMG</span>
             </div>
           )}
 
           <div style={{ minWidth: 0 }}>
-            <div style={{ fontWeight: 700, color: "#111827" }}>{row.name}</div>
-            <div style={{ color: "#374151", fontSize: 14 }}>{row.price.toFixed(2)} EUR</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              <div style={{ fontWeight: 700, color: "#0f172a", fontSize: 16, lineHeight: 1.25 }}>{row.name}</div>
+              <span
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  padding: "3px 10px",
+                  borderRadius: 999,
+                  fontSize: 11,
+                  fontWeight: 700,
+                  border: row.is_active ? "1px solid #86efac" : "1px solid #fecaca",
+                  background: row.is_active ? "#f0fdf4" : "#fef2f2",
+                  color: row.is_active ? "#166534" : "#991b1b",
+                }}
+              >
+                {row.is_active ? "Activo" : "Inactivo"}
+              </span>
+            </div>
+            <div style={{ marginTop: 4, color: "#0f172a", fontSize: 15, fontWeight: 600 }}>{row.price.toFixed(2)} EUR</div>
             {row.description ? (
-              <div style={{ marginTop: 4, color: "#6b7280", fontSize: 13 }}>{row.description}</div>
+              <div style={{ marginTop: 6, color: "#64748b", fontSize: 13, lineHeight: 1.4 }}>{row.description}</div>
             ) : null}
             {row.track_stock && (
               <div
                 style={{
-                  marginTop: 4,
+                  marginTop: 8,
                   display: "inline-flex",
                   alignItems: "center",
                   gap: 4,
-                  fontSize: 11,
+                  fontSize: 12,
                   fontWeight: 600,
-                  padding: "2px 7px",
+                  padding: "3px 9px",
                   borderRadius: 20,
-                  background: row.stock_quantity > 0 ? "rgba(74,222,128,0.12)" : "rgba(239,68,68,0.1)",
-                  color: row.stock_quantity > 0 ? "#16a34a" : "#dc2626",
+                  background: row.stock_quantity > 0 ? "rgba(34,197,94,0.12)" : "rgba(239,68,68,0.1)",
+                  color: row.stock_quantity > 0 ? "#15803d" : "#dc2626",
                 }}
               >
                 {row.stock_quantity > 0 ? `En stock (${row.stock_quantity})` : "Sin stock"}
@@ -186,11 +211,15 @@ function SortableProductCard({
           disabled={disabled}
           style={{
             border: "1px solid #d1d5db",
-            background: "#fff",
-            borderRadius: 8,
-            padding: "6px 10px",
+            background: "#ffffff",
+            borderRadius: 10,
+            padding: "8px 12px",
             cursor: disabled ? "not-allowed" : "grab",
             flexShrink: 0,
+            color: "#334155",
+            fontSize: 12,
+            fontWeight: 600,
+            minHeight: 36,
           }}
         >
           Arrastrar
@@ -198,14 +227,28 @@ function SortableProductCard({
       </div>
 
       <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-        <label style={{ display: "inline-flex", alignItems: "center", gap: 6, color: "#374151" }}>
+        <label
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 8,
+            color: "#334155",
+            fontSize: 13,
+            fontWeight: 600,
+            padding: "8px 12px",
+            border: "1px solid #dbe2ea",
+            borderRadius: 10,
+            background: "#ffffff",
+            minHeight: 38,
+          }}
+        >
           <input
             type="checkbox"
             checked={row.is_active}
             disabled={disabled || isSaving}
             onChange={() => onToggle(row)}
           />
-          Activo
+          Visible en tienda
         </label>
 
         <button
@@ -214,10 +257,14 @@ function SortableProductCard({
           disabled={disabled || isSaving}
           style={{
             border: "1px solid #d1d5db",
-            background: "#fff",
-            borderRadius: 8,
-            padding: "6px 10px",
+            background: "#ffffff",
+            borderRadius: 10,
+            padding: "8px 14px",
             cursor: disabled || isSaving ? "not-allowed" : "pointer",
+            minHeight: 38,
+            fontSize: 13,
+            fontWeight: 600,
+            color: "#334155",
           }}
         >
           Editar
@@ -228,12 +275,15 @@ function SortableProductCard({
           onClick={() => onDelete(row)}
           disabled={disabled || isSaving}
           style={{
-            border: "1px solid #fecaca",
+            border: "1px solid #fca5a5",
             background: "#fef2f2",
             color: "#991b1b",
-            borderRadius: 8,
-            padding: "6px 10px",
+            borderRadius: 10,
+            padding: "8px 14px",
             cursor: disabled || isSaving ? "not-allowed" : "pointer",
+            minHeight: 38,
+            fontSize: 13,
+            fontWeight: 700,
           }}
         >
           Eliminar
@@ -244,13 +294,15 @@ function SortableProductCard({
           onClick={() => onManageModifiers(row)}
           disabled={disabled || isSaving}
           style={{
-            border: "1px solid var(--brand-primary-border)",
-            background: "var(--brand-primary-soft)",
-            color: "var(--brand-hover)",
-            borderRadius: 8,
-            padding: "6px 10px",
+            border: "1px solid #bfdbfe",
+            background: "#eff6ff",
+            color: "#1d4ed8",
+            borderRadius: 10,
+            padding: "8px 14px",
             cursor: disabled || isSaving ? "not-allowed" : "pointer",
             fontSize: 13,
+            fontWeight: 700,
+            minHeight: 38,
           }}
         >
           Modificadores
@@ -283,6 +335,8 @@ export default function AdminProductsPage() {
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [localImageUrl, setLocalImageUrl] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [searchFocused, setSearchFocused] = useState(false);
+  const [categoryFocused, setCategoryFocused] = useState(false);
 
   const pushToast = useCallback((type: Toast["type"], message: string) => {
     const id = Date.now() + Math.floor(Math.random() * 1000);
@@ -588,7 +642,12 @@ export default function AdminProductsPage() {
       if (createdProduct?.id && imageFile) {
         try {
           const blob = await prepareImageWebp(imageFile);
-          const uploadedUrl = await uploadProductImage(supabase, String(createdProduct.id), blob);
+          const uploadedUrl = await uploadProductImage(
+            supabase,
+            restaurantId,
+            String(createdProduct.id),
+            blob
+          );
           await supabase.from("products").update({ image_url: uploadedUrl }).eq("id", String(createdProduct.id));
         } catch (uploadErr) {
           pushToast("error", uploadErr instanceof Error ? uploadErr.message : "No se pudo subir la imagen.");
@@ -618,7 +677,7 @@ export default function AdminProductsPage() {
     if (imageFile) {
       try {
         const blob = await prepareImageWebp(imageFile);
-        finalImageUrl = await uploadProductImage(supabase, modal.productId, blob);
+        finalImageUrl = await uploadProductImage(supabase, restaurantId, modal.productId, blob);
       } catch (uploadErr) {
         pushToast("error", uploadErr instanceof Error ? uploadErr.message : "No se pudo subir la imagen.");
         setSubmittingModal(false);
@@ -761,80 +820,157 @@ export default function AdminProductsPage() {
   const previewSrc = localImageUrl || draft.image_url || null;
 
   return (
-    <section style={{ display: "grid", gap: 16 }}>
+    <section style={{ display: "grid", gap: 18, width: "100%" }}>
       <header
         style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          gap: 10,
-          flexWrap: "wrap",
+          display: "grid",
+          gap: 14,
+          border: "1px solid #e5e7eb",
+          borderRadius: 16,
+          padding: 18,
+          background: "linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)",
+          boxShadow: "0 1px 2px rgba(15, 23, 42, 0.06)",
         }}
       >
-        <div>
-          <h2 style={{ margin: 0 }}>Productos</h2>
-          <p style={{ margin: "4px 0 0", color: "#6b7280" }}>Gestiona menu por categoria</p>
-        </div>
-
-        <button
-          type="button"
-          onClick={openCreateModal}
-          disabled={!canManage || isBusy || !selectedCategoryId}
+        <div
           style={{
-            borderRadius: 10,
-            border: "1px solid var(--brand-primary)",
-            background: "var(--brand-primary)",
-            color: "var(--brand-white)",
-            padding: "8px 12px",
-            cursor: !canManage || isBusy || !selectedCategoryId ? "not-allowed" : "pointer",
-            opacity: !canManage || isBusy || !selectedCategoryId ? 0.6 : 1,
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            gap: 12,
+            flexWrap: "wrap",
           }}
         >
-          + Producto
-        </button>
+          <div style={{ minWidth: 0 }}>
+            <h2 style={{ margin: 0, fontSize: "clamp(1.3rem, 2vw, 1.65rem)", lineHeight: 1.2, color: "#0f172a" }}>
+              Productos
+            </h2>
+            <p style={{ margin: "6px 0 0", color: "#64748b", fontSize: 14, lineHeight: 1.4 }}>
+              Gestiona menu por categoria
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={openCreateModal}
+            disabled={!canManage || isBusy || !selectedCategoryId}
+            style={{
+              borderRadius: 12,
+              border: "1px solid #0f172a",
+              background: "#0f172a",
+              color: "#ffffff",
+              padding: "10px 14px",
+              fontSize: 14,
+              fontWeight: 600,
+              cursor: !canManage || isBusy || !selectedCategoryId ? "not-allowed" : "pointer",
+              opacity: !canManage || isBusy || !selectedCategoryId ? 0.6 : 1,
+              boxShadow: "0 8px 20px rgba(15, 23, 42, 0.18)",
+            }}
+          >
+            + Producto
+          </button>
+        </div>
       </header>
 
-      {/* Search input */}
-      <input
-        type="search"
-        placeholder="Buscar productos por nombre (todas las categorías)..."
-        value={searchQuery}
-        onChange={(e) => setSearchQuery(e.target.value)}
+      <section
         style={{
-          border: "1px solid #d1d5db",
-          borderRadius: 8,
-          padding: "8px 12px",
-          fontSize: 14,
-          width: "100%",
-          boxSizing: "border-box",
-          background: "#fff",
+          display: "grid",
+          gap: 14,
+          border: "1px solid #e2e8f0",
+          borderRadius: 14,
+          padding: 14,
+          background: "#ffffff",
+          boxShadow: "0 1px 2px rgba(15, 23, 42, 0.05)",
+          gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
+          alignItems: "end",
         }}
-      />
+      >
+        <div style={{ position: "relative", width: "100%" }}>
+          <label
+            htmlFor="products-search"
+            style={{ display: "block", marginBottom: 6, color: "#334155", fontSize: 13, fontWeight: 600 }}
+          >
+            Buscar producto
+          </label>
+          <svg
+            aria-hidden="true"
+            viewBox="0 0 24 24"
+            style={{
+              width: 16,
+              height: 16,
+              position: "absolute",
+              left: 14,
+              bottom: 12,
+              color: "#64748b",
+              pointerEvents: "none",
+            }}
+          >
+            <path
+              d="M11 4a7 7 0 1 0 4.4 12.4l4.1 4.1a1 1 0 0 0 1.4-1.4l-4.1-4.1A7 7 0 0 0 11 4Zm0 2a5 5 0 1 1 0 10 5 5 0 0 1 0-10Z"
+              fill="currentColor"
+            />
+          </svg>
+          <input
+            id="products-search"
+            type="search"
+            placeholder="Buscar productos por nombre (todas las categorias)..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            onFocus={() => setSearchFocused(true)}
+            onBlur={() => setSearchFocused(false)}
+            style={{
+              border: searchFocused ? "1px solid #0f172a" : "1px solid #cbd5e1",
+              borderRadius: 12,
+              padding: "10px 14px 10px 40px",
+              fontSize: 14,
+              width: "100%",
+              boxSizing: "border-box",
+              background: "#ffffff",
+              boxShadow: searchFocused
+                ? "0 0 0 3px rgba(15, 23, 42, 0.14)"
+                : "0 1px 2px rgba(15, 23, 42, 0.06)",
+              color: "#0f172a",
+              outline: "none",
+              minHeight: 42,
+            }}
+          />
+        </div>
 
-      <section style={{ display: "grid", gap: 8 }}>
-        <label htmlFor="products-category" style={{ color: "#374151", fontSize: 13 }}>
-          Categoria
-        </label>
-        <select
-          id="products-category"
-          value={selectedCategoryId}
-          onChange={(event) => setSelectedCategoryId(event.target.value)}
-          disabled={searchResults !== null}
-          style={{
-            borderRadius: 8,
-            border: "1px solid #d1d5db",
-            padding: "8px 10px",
-            maxWidth: 320,
-            opacity: searchResults !== null ? 0.5 : 1,
-          }}
-        >
-          {categories.length === 0 ? <option value="">Sin categorias</option> : null}
-          {categories.map((category) => (
-            <option key={category.id} value={category.id}>
-              {category.name}
-            </option>
-          ))}
-        </select>
+        <div style={{ display: "grid", gap: 6, minWidth: 0 }}>
+          <label htmlFor="products-category" style={{ color: "#334155", fontSize: 13, fontWeight: 600 }}>
+            Categoria
+          </label>
+          <select
+            id="products-category"
+            value={selectedCategoryId}
+            onChange={(event) => setSelectedCategoryId(event.target.value)}
+            onFocus={() => setCategoryFocused(true)}
+            onBlur={() => setCategoryFocused(false)}
+            disabled={searchResults !== null}
+            style={{
+              borderRadius: 12,
+              border: categoryFocused ? "1px solid #0f172a" : "1px solid #cbd5e1",
+              padding: "10px 12px",
+              width: "100%",
+              minHeight: 42,
+              maxWidth: 380,
+              background: "#ffffff",
+              color: "#0f172a",
+              boxShadow: categoryFocused
+                ? "0 0 0 3px rgba(15, 23, 42, 0.14)"
+                : "0 1px 2px rgba(15, 23, 42, 0.06)",
+              opacity: searchResults !== null ? 0.55 : 1,
+              outline: "none",
+            }}
+          >
+            {categories.length === 0 ? <option value="">Sin categorias</option> : null}
+            {categories.map((category) => (
+              <option key={category.id} value={category.id}>
+                {category.name}
+              </option>
+            ))}
+          </select>
+        </div>
       </section>
 
       {error ? (
@@ -868,7 +1004,17 @@ export default function AdminProductsPage() {
             />
           </div>
         ) : (
-          <div style={{ display: "grid", gap: 10 }}>
+          <div
+            style={{
+              display: "grid",
+              gap: 12,
+              border: "1px solid #e2e8f0",
+              borderRadius: 14,
+              padding: 14,
+              background: "#ffffff",
+              boxShadow: "0 1px 2px rgba(15, 23, 42, 0.05)",
+            }}
+          >
             <p style={{ margin: 0, fontSize: 13, color: "#6b7280" }}>
               {searchResults.length} resultado{searchResults.length !== 1 ? "s" : ""} para "{searchQuery}"
             </p>
@@ -905,7 +1051,17 @@ export default function AdminProductsPage() {
       {!loading && searchResults === null && selectedCategoryId && productsInSelectedCategory.length > 0 ? (
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
           <SortableContext items={productIds} strategy={verticalListSortingStrategy}>
-            <div style={{ display: "grid", gap: 10 }}>
+            <div
+              style={{
+                display: "grid",
+                gap: 12,
+                border: "1px solid #e2e8f0",
+                borderRadius: 14,
+                padding: 14,
+                background: "#ffffff",
+                boxShadow: "0 1px 2px rgba(15, 23, 42, 0.05)",
+              }}
+            >
               {productsInSelectedCategory.map((product) => (
                 <SortableProductCard
                   key={product.id}

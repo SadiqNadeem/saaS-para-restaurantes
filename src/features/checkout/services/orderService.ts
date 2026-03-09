@@ -1,6 +1,8 @@
 import { supabase } from "../../../lib/supabase";
 import type { CheckoutDraft } from "../types";
 
+type RpcPaymentMethod = "cash" | "card_on_delivery" | "card_online";
+
 type CartItem = {
   productId: string;
   qty: number;
@@ -75,8 +77,8 @@ type CreateOrderRpcPayload = {
   };
   order_type: CheckoutDraft["orderType"];
   orderType: CheckoutDraft["orderType"];
-  payment_method: CheckoutDraft["payment"]["method"];
-  paymentMethod: CheckoutDraft["payment"]["method"];
+  payment_method: RpcPaymentMethod;
+  paymentMethod: RpcPaymentMethod;
   total: number;
   subtotal: number;
   delivery_fee: number;
@@ -252,10 +254,12 @@ export async function createOrderFromCheckout(params: CreateOrderParams): Promis
       : Number(cartTotal)
   );
   const rawPaymentMethod = (draft.payment as { method?: string } | null | undefined)?.method;
-  const paymentMethod: CheckoutDraft["payment"]["method"] =
-    rawPaymentMethod === "card_on_delivery" || rawPaymentMethod === "card_online"
-      ? rawPaymentMethod
-      : "cash";
+  const paymentMethod: RpcPaymentMethod =
+    rawPaymentMethod === "card_on_delivery"
+      ? "card_on_delivery"
+      : rawPaymentMethod === "card_online" || rawPaymentMethod === "stripe_online"
+        ? "card_online"
+        : "cash";
   const orderType: CheckoutDraft["orderType"] =
     draft.orderType === "delivery" ? "delivery" : "pickup";
   const deliveryAddressText =
