@@ -200,23 +200,23 @@ function extractOrderNote(raw: string | null | undefined): string | null {
 
 function getNextStatus(status: OrderStatus | null): OrderStatus | null {
   switch (status) {
-    case "pending":          return "accepted";
-    case "accepted":         return "preparing";
-    case "preparing":        return "ready";
-    case "ready":            return "delivered";
+    case "pending": return "accepted";
+    case "accepted": return "preparing";
+    case "preparing": return "ready";
+    case "ready": return "delivered";
     case "out_for_delivery": return "delivered";
-    default:                 return null;
+    default: return null;
   }
 }
 
 function getNextLabel(status: OrderStatus | null): string {
   switch (status) {
-    case "pending":          return "Aceptar";
-    case "accepted":         return "Preparando";
-    case "preparing":        return "Listo";
-    case "ready":            return "Entregar";
+    case "pending": return "Aceptar";
+    case "accepted": return "Preparando";
+    case "preparing": return "Listo";
+    case "ready": return "Entregar";
     case "out_for_delivery": return "Entregado";
-    default:                 return "";
+    default: return "";
   }
 }
 
@@ -1376,7 +1376,7 @@ function CierreCajaModal({ orders, restaurantId, onClose }: CierreCajaModalProps
       <hr><b>Pedidos por origen</b><table>
       <tr><td>TPV</td><td style="text-align:right">${posOrders.length}</td></tr>
       <tr><td>Web</td><td style="text-align:right">${webOrders.length}</td></tr>
-      </table><hr><b>Ingresos por mÃ©todo de pago</b><table>${rows}</table>
+      </table><hr><b>Ingresos por mÃtodo de pago</b><table>${rows}</table>
       <hr><b>Total: ${totalRevenue.toFixed(2)}â‚¬</b>
       <hr><b>Pedidos por estado</b><table>${statusRows}</table>
       </body></html>`;
@@ -2032,12 +2032,12 @@ if (typeof document !== "undefined") {
         50% { opacity: 0.7; box-shadow: 0 0 0 4px rgba(74,222,128,0); }
       }
       @keyframes pos-card-flash {
-        0%   { border-color: #f97316; box-shadow: 0 0 0 3px rgba(249,115,22,0.35); }
-        60%  { border-color: #f97316; box-shadow: 0 0 0 3px rgba(249,115,22,0.10); }
+        0% { border-color: #f97316; box-shadow: 0 0 0 3px rgba(249,115,22,0.35); }
+        60% { border-color: #f97316; box-shadow: 0 0 0 3px rgba(249,115,22,0.10); }
         100% { border-color: #334155; box-shadow: none; }
       }
       @keyframes pos-new-badge {
-        0%   { opacity: 1; }
+        0% { opacity: 1; }
         100% { opacity: 0.5; }
       }
     `;

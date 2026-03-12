@@ -19,14 +19,14 @@ type Ingredient = {
   sort_order: number;
 };
 
-/** ✅ Lo usará App.tsx para pintar el carrito */
+/** Lo usará App.tsx para pintar el carrito */
 export type SelectedExtra = {
   ingredientId: string;
   name: string;
   price: number;
 };
 
-/** ✅ Payload que devuelve el modal a App.tsx */
+/** Payload que devuelve el modal a App.tsx */
 export type ModalConfirmPayload = {
   productId: string;
   productName: string;

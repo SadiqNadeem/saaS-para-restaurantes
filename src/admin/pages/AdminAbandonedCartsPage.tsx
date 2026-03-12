@@ -173,7 +173,7 @@ export default function AdminAbandonedCartsPage() {
     const phone = (cart.customer_phone ?? "").replace(/\D/g, "");
     const name = cart.customer_name ?? "cliente";
     const msg = encodeURIComponent(
-      `Hola ${name}, vimos que dejaste tu pedido a medias en ${restaurantName}. ¿Puedo ayudarte a completarlo? 🛒`
+      `Hola ${name}, vimos que dejaste tu pedido a medias en ${restaurantName}. ¿Puedo ayudarte a completarlo? `
     );
     return `https://wa.me/${phone}?text=${msg}`;
   };

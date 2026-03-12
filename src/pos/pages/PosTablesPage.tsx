@@ -144,7 +144,7 @@ function TableCard({
         <div style={{ marginTop: "auto", display: "flex", flexDirection: "column", gap: 4 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <span style={{ fontSize: 12, color: "#94a3b8" }}>
-              ⏱ {elapsedLabel(table.order_created_at)}
+               {elapsedLabel(table.order_created_at)}
             </span>
             {(table.order_item_count ?? 0) > 0 && (
               <span style={{ fontSize: 12, color: "#94a3b8" }}>
@@ -193,9 +193,9 @@ function StatusPickerModal({
   onClose: () => void;
 }) {
   const options: { value: TableStatus; label: string; emoji: string; bg: string; color: string; border: string; disabled?: boolean }[] = [
-    { value: "free",     label: "Libre",     emoji: "🟢", bg: "rgba(74,222,128,0.15)",  color: "#4ade80", border: "rgba(74,222,128,0.4)" },
-    { value: "occupied", label: "Ocupada",   emoji: "🔴", bg: "rgba(248,113,113,0.15)", color: "#f87171", border: "rgba(248,113,113,0.4)" },
-    { value: "reserved", label: "Reservada", emoji: "🟡", bg: "rgba(251,191,36,0.15)",  color: "#fbbf24", border: "rgba(251,191,36,0.4)",
+    { value: "free", label: "Libre", emoji: "", bg: "rgba(74,222,128,0.15)", color: "#4ade80", border: "rgba(74,222,128,0.4)" },
+    { value: "occupied", label: "Ocupada", emoji: "", bg: "rgba(248,113,113,0.15)", color: "#f87171", border: "rgba(248,113,113,0.4)" },
+    { value: "reserved", label: "Reservada", emoji: "", bg: "rgba(251,191,36,0.15)", color: "#fbbf24", border: "rgba(251,191,36,0.4)",
       disabled: table.status !== "free" && table.status !== "reserved" },
   ];
 
@@ -382,7 +382,7 @@ function ConfirmOpenModal({
         style={{ background: "#1e293b", border: "1px solid #334155", borderRadius: 16, padding: 24, width: "min(360px, 100%)", display: "flex", flexDirection: "column", gap: 16, textAlign: "center" }}
         onClick={(e) => e.stopPropagation()}
       >
-        <div style={{ fontSize: 40 }}>🍽️</div>
+        <div style={{ fontSize: 40 }}></div>
         <h3 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: "#f1f5f9" }}>
           Abrir cuenta — {table.name}
         </h3>

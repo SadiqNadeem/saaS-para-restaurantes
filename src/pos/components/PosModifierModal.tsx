@@ -31,7 +31,6 @@ type ModGroup = {
   name: string;
   min_select: number;
   max_select: number;
-  sort_order: number;
 };
 
 type ModOption = {
@@ -44,6 +43,7 @@ type ModOption = {
 
 type Props = {
   product: { id: string; name: string; price: number };
+  restaurantId: string;
   onConfirm: (payload: ModalConfirmPayload) => void;
   onClose: () => void;
 };
@@ -59,7 +59,7 @@ function fmtEur(n: number): string {
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export default function PosModifierModal({ product, onConfirm, onClose }: Props) {
+export default function PosModifierModal({ product, restaurantId, onConfirm, onClose }: Props) {
   const [groups, setGroups] = useState<ModGroup[]>([]);
   const [optionsByGroup, setOptionsByGroup] = useState<Record<string, ModOption[]>>({});
   const [loading, setLoading] = useState(true);
@@ -87,21 +87,20 @@ export default function PosModifierModal({ product, onConfirm, onClose }: Props)
       // Step 1: which groups are linked to this product (with their display order)
       const { data: pmgData, error: pmgErr } = await supabase
         .from("product_modifier_groups")
-        .select("group_id, sort_order")
-        .eq("product_id", product.id)
-        .order("sort_order", { ascending: true });
+        .select("modifier_group_id")
+        .eq("restaurant_id", restaurantId)
+        .eq("product_id", product.id);
 
       if (!alive) return;
       if (pmgErr) {
-        setLoadError(pmgErr.message);
+        if (import.meta.env.DEV) console.error("[pos] load product_modifier_groups", pmgErr);
+        setLoadError("No se pudieron cargar los modificadores.");
         setLoading(false);
         return;
       }
 
-      const pmgRows = (pmgData ?? []) as Array<{ group_id: string; sort_order: number }>;
-      const groupIds = pmgRows.map((r) => r.group_id);
-      const sortMap: Record<string, number> = {};
-      for (const r of pmgRows) sortMap[r.group_id] = r.sort_order;
+      const pmgRows = (pmgData ?? []) as Array<{ modifier_group_id: string }>;
+      const groupIds = pmgRows.map((r) => r.modifier_group_id);
 
       if (groupIds.length === 0) {
         setLoading(false);
@@ -114,11 +113,13 @@ export default function PosModifierModal({ product, onConfirm, onClose }: Props)
           .from("modifier_groups")
           .select("id, name, min_select, max_select")
           .in("id", groupIds)
+          .eq("restaurant_id", restaurantId)
           .eq("is_active", true),
         supabase
           .from("modifier_options")
           .select("id, group_id, name, price, position")
           .in("group_id", groupIds)
+          .eq("restaurant_id", restaurantId)
           .eq("is_active", true)
           .order("position", { ascending: true }),
       ]);
@@ -126,7 +127,14 @@ export default function PosModifierModal({ product, onConfirm, onClose }: Props)
       if (!alive) return;
 
       if (groupRes.error) {
-        setLoadError(groupRes.error.message);
+        if (import.meta.env.DEV) console.error("[pos] load modifier_groups", groupRes.error);
+        setLoadError("No se pudieron cargar los modificadores.");
+        setLoading(false);
+        return;
+      }
+      if (optRes.error) {
+        if (import.meta.env.DEV) console.error("[pos] load modifier_options", optRes.error);
+        setLoadError("No se pudieron cargar los modificadores.");
         setLoading(false);
         return;
       }
@@ -134,10 +142,7 @@ export default function PosModifierModal({ product, onConfirm, onClose }: Props)
       type RawGroup = { id: string; name: string; min_select: number; max_select: number };
       const rawGroups = (groupRes.data ?? []) as RawGroup[];
 
-      // Sort groups by the sort_order from product_modifier_groups
-      const sortedGroups: ModGroup[] = rawGroups
-        .map((g) => ({ ...g, sort_order: sortMap[g.id] ?? 0 }))
-        .sort((a, b) => a.sort_order - b.sort_order);
+      const sortedGroups: ModGroup[] = rawGroups;
 
       const rawOptions = (optRes.data ?? []) as ModOption[];
       const optsMap: Record<string, ModOption[]> = {};
@@ -155,7 +160,8 @@ export default function PosModifierModal({ product, onConfirm, onClose }: Props)
     return () => {
       alive = false;
     };
-  }, [product.id]);
+  }, [product.id, restaurantId]);
+
 
   // ── Toggle option ──
   const toggleOption = (group: ModGroup, optId: string) => {

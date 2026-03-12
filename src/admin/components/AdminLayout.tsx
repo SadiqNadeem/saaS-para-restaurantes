@@ -103,7 +103,7 @@ export default function AdminLayout() {
           onMouseEnter={(e) => { e.currentTarget.style.color = "#fff"; }}
           onMouseLeave={(e) => { e.currentTarget.style.color = "rgba(255,255,255,0.7)"; }}
         >
-          ↗ Ver menú público
+           Ver menú público
         </a>
 
         {/* Logout */}

@@ -13,6 +13,7 @@ export type AdminRestaurantRow = {
 type AdminRestaurantContextValue = {
   restaurantId: string | null;
   setRestaurantId: (id: string) => void;
+  refresh: () => void;
   isSuperadmin: boolean;
   restaurants: AdminRestaurantRow[];
   loading: boolean;
@@ -83,6 +84,7 @@ export function AdminRestaurantProvider({ children }: { children: ReactNode }) {
   const [isSuperadmin, setIsSuperadmin] = useState(false);
   const [restaurants, setRestaurants] = useState<AdminRestaurantRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [reloadTick, setReloadTick] = useState(0);
 
   useEffect(() => {
     let alive = true;
@@ -176,7 +178,11 @@ export function AdminRestaurantProvider({ children }: { children: ReactNode }) {
     return () => {
       alive = false;
     };
-  }, [authLoading, session?.user?.id]);
+  }, [authLoading, reloadTick, session?.user?.id]);
+
+  const refresh = useCallback(() => {
+    setReloadTick((prev) => prev + 1);
+  }, []);
 
   const setRestaurantId = useCallback(
     (id: string) => {
@@ -197,11 +203,12 @@ export function AdminRestaurantProvider({ children }: { children: ReactNode }) {
     () => ({
       restaurantId,
       setRestaurantId,
+      refresh,
       isSuperadmin,
       restaurants,
       loading,
     }),
-    [isSuperadmin, loading, restaurantId, restaurants, setRestaurantId]
+    [isSuperadmin, loading, refresh, restaurantId, restaurants, setRestaurantId]
   );
 
   return <AdminRestaurantContext.Provider value={value}>{children}</AdminRestaurantContext.Provider>;

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 
+import { HelpTooltip } from "../components/HelpTooltip";
 import { useAdminMembership } from "../components/AdminMembershipContext";
 import { supabase } from "../../lib/supabase";
 import { useRestaurant } from "../../restaurant/RestaurantContext";
@@ -387,7 +388,7 @@ export default function AdminCouponsPage() {
         </div>
       ) : coupons.length === 0 ? (
         <div style={{ ...card, textAlign: "center", padding: "40px 20px" }}>
-          <div style={{ fontSize: 36, marginBottom: 8 }}>🏷️</div>
+          <div style={{ fontSize: 36, marginBottom: 8 }}></div>
           <div style={{ fontWeight: 700, color: "#111827", marginBottom: 4 }}>Sin cupones</div>
           <div style={{ color: "#6b7280", fontSize: 13, marginBottom: 16 }}>
             Crea tu primer cupón de descuento para atraer más clientes.
@@ -606,7 +607,9 @@ export default function AdminCouponsPage() {
 
             {/* Discount type toggle */}
             <div>
-              <label style={labelStyle}>Tipo de descuento *</label>
+              <label style={{ ...labelStyle, display: "inline-flex", alignItems: "center" }}>
+                Tipo de descuento * <HelpTooltip text="Porcentaje: 10% del total. Fijo: 5€ de descuento" />
+              </label>
               <div style={{ display: "flex", gap: 8 }}>
                 {(["percent", "fixed"] as const).map((type) => (
                   <button
@@ -672,7 +675,9 @@ export default function AdminCouponsPage() {
 
             {/* Min order */}
             <div>
-              <label style={labelStyle} htmlFor="coupon-min">Pedido mínimo (€)</label>
+              <label style={{ ...labelStyle, display: "inline-flex", alignItems: "center" }} htmlFor="coupon-min">
+                Pedido mínimo (€) <HelpTooltip text="El cupón solo aplica si el pedido supera este importe" />
+              </label>
               <input
                 id="coupon-min"
                 type="number"
@@ -687,7 +692,9 @@ export default function AdminCouponsPage() {
 
             {/* Max uses */}
             <div>
-              <label style={labelStyle} htmlFor="coupon-maxuses">Usos máximos (vacío = ilimitado)</label>
+              <label style={{ ...labelStyle, display: "inline-flex", alignItems: "center" }} htmlFor="coupon-maxuses">
+                Usos máximos <HelpTooltip text="Deja vacío para cupones de uso ilimitado" />
+              </label>
               <input
                 id="coupon-maxuses"
                 type="number"

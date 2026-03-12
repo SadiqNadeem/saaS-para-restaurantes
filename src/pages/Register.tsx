@@ -1,18 +1,16 @@
-﻿import { useEffect, useRef, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+﻿import { useEffect, useMemo, useRef, useState } from "react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 
 import { useAdminRestaurantStore } from "../admin/context/AdminRestaurantContext";
 import { useAuth } from "../auth/AuthContext";
-import { savePendingSignup } from "../auth/pendingSignup";
+import { maybeCreateRestaurantFromPendingSignup, savePendingSignup } from "../auth/pendingSignup";
+import { normalizeSignupPlan } from "../auth/signupPlan";
 import { supabase } from "../lib/supabase";
-
-// â”€â”€â”€ helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-
-// â”€â”€â”€ page â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 type Step = "form" | "submitting" | "check_email" | "error";
 
 export default function Register() {
+  const location = useLocation();
   const navigate = useNavigate();
   const { session, loading: authLoading } = useAuth();
   const {
@@ -20,19 +18,23 @@ export default function Register() {
     restaurants: adminRestaurants,
     isSuperadmin,
     loading: adminRestaurantLoading,
+    refresh,
   } = useAdminRestaurantStore();
   const redirectedRef = useRef(false);
+
+  const selectedPlan = useMemo(() => {
+    const params = new URLSearchParams(location.search);
+    return normalizeSignupPlan(params.get("plan"));
+  }, [location.search]);
 
   const [step, setStep] = useState<Step>("form");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  // Fields
   const [restaurantName, setRestaurantName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
 
-  // If already logged in, redirect away
   useEffect(() => {
     if (authLoading || adminRestaurantLoading || !session || redirectedRef.current) {
       return;
@@ -48,8 +50,8 @@ export default function Register() {
   const validate = (): string | null => {
     if (!restaurantName.trim()) return "El nombre del restaurante es obligatorio.";
     if (!email.trim()) return "El email es obligatorio.";
-    if (password.length < 8) return "La contraseÃ±a debe tener al menos 8 caracteres.";
-    if (password !== confirmPassword) return "Las contraseÃ±as no coinciden.";
+    if (password.length < 8) return "La contrasena debe tener al menos 8 caracteres.";
+    if (password !== confirmPassword) return "Las contrasenas no coinciden.";
     return null;
   };
 
@@ -65,8 +67,7 @@ export default function Register() {
 
     setStep("submitting");
 
-    // 1. Sign up (email verification required)
-    const { error: signUpError } = await supabase.auth.signUp({
+    const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
       email: email.trim(),
       password,
       options: {
@@ -75,24 +76,31 @@ export default function Register() {
     });
 
     if (signUpError) {
-      console.error("[Register] signUp failed:", {
-        message: signUpError.message,
-        status: signUpError.status,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        code: (signUpError as any).code,
-        name: signUpError.name,
-        raw: signUpError,
-      });
       setErrorMsg(`Error ${signUpError.status ?? ""}: ${signUpError.message}`);
       setStep("error");
       return;
     }
 
-    savePendingSignup({ email: email.trim(), restaurantName: restaurantName.trim() });
+    savePendingSignup({
+      email: email.trim(),
+      restaurantName: restaurantName.trim(),
+      plan: selectedPlan,
+    });
+
+    if (signUpData.session) {
+      const pendingResult = await maybeCreateRestaurantFromPendingSignup(email.trim());
+      if (pendingResult.status === "error") {
+        setErrorMsg(pendingResult.message);
+        setStep("error");
+        return;
+      }
+      refresh();
+      navigate("/admin", { replace: true });
+      return;
+    }
+
     setStep("check_email");
   };
-
-  // â”€â”€ render states â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   if (authLoading) {
     return <PageShell><p style={s.muted}>Cargando...</p></PageShell>;
@@ -102,11 +110,14 @@ export default function Register() {
     return (
       <PageShell>
         <Card>
-          <div style={s.icon}>âœ‰ï¸</div>
+          <div style={s.icon}>Verifica email</div>
           <h1 style={s.h1}>Revisa tu email</h1>
           <p style={{ ...s.muted, textAlign: "center", lineHeight: 1.6 }}>
-            Te hemos enviado un email de verificaciÃ³n a <strong>{email}</strong>.
+            Te hemos enviado un email de verificacion a <strong>{email}</strong>.
             Revisa tu correo para activar tu cuenta.
+          </p>
+          <p style={{ ...s.muted, textAlign: "center" }}>
+            Plan seleccionado: <strong>{selectedPlan.toUpperCase()}</strong>
           </p>
           <Link to="/login" style={s.link}>Ir al login</Link>
         </Card>
@@ -119,10 +130,14 @@ export default function Register() {
   return (
     <PageShell>
       <Card>
+        <Link to="/" style={{ fontSize: 13, color: "#6b7280", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 4 }}>
+          {'<-'} Volver al inicio
+        </Link>
         <div style={s.header}>
-          <div style={s.logo}>ðŸ½ï¸</div>
+          <div style={s.logo}>Kebab</div>
           <h1 style={s.h1}>Crea tu restaurante</h1>
           <p style={s.subtitle}>Rellena los datos para empezar.</p>
+          <p style={s.planBadge}>Plan: {selectedPlan.toUpperCase()}</p>
         </div>
 
         <form onSubmit={onSubmit} style={s.form} noValidate>
@@ -150,24 +165,24 @@ export default function Register() {
             />
           </Field>
 
-          <Field label="ContraseÃ±a">
+          <Field label="Contrasena">
             <input
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="MÃ­nimo 8 caracteres"
+              placeholder="Minimo 8 caracteres"
               required
               disabled={busy}
               style={s.input}
             />
           </Field>
 
-          <Field label="Confirmar contraseÃ±a">
+          <Field label="Confirmar contrasena">
             <input
               type="password"
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
-              placeholder="Repite la contraseÃ±a"
+              placeholder="Repite la contrasena"
               required
               disabled={busy}
               style={s.input}
@@ -184,15 +199,13 @@ export default function Register() {
         </form>
 
         <p style={s.footer}>
-          Â¿Ya tienes cuenta?{" "}
-          <Link to="/login" style={s.link}>Iniciar sesiÃ³n</Link>
+          Ya tienes cuenta?{" "}
+          <Link to="/login" style={s.link}>Iniciar sesion</Link>
         </p>
       </Card>
     </PageShell>
   );
 }
-
-// â”€â”€â”€ layout helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function PageShell({ children }: { children: React.ReactNode }) {
   return (
@@ -214,8 +227,6 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
     </label>
   );
 }
-
-// â”€â”€â”€ styles â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const s = {
   page: {
@@ -249,7 +260,8 @@ const s = {
     textAlign: "center" as const,
   },
   logo: {
-    fontSize: 32,
+    fontSize: 20,
+    fontWeight: 700,
     marginBottom: 4,
   },
   h1: {
@@ -263,6 +275,17 @@ const s = {
     margin: 0,
     fontSize: 14,
     color: "#6b7280",
+  },
+  planBadge: {
+    margin: "4px 0 0",
+    fontSize: 12,
+    fontWeight: 700,
+    letterSpacing: "0.04em",
+    color: "#111827",
+    background: "#f3f4f6",
+    border: "1px solid #e5e7eb",
+    borderRadius: 999,
+    padding: "4px 10px",
   },
   form: {
     display: "flex",
@@ -331,7 +354,7 @@ const s = {
     margin: 0,
   },
   icon: {
-    fontSize: 40,
+    fontSize: 24,
     textAlign: "center" as const,
     marginBottom: 8,
   },

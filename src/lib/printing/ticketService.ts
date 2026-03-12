@@ -74,17 +74,17 @@ function fmtDate(iso?: string | null): string {
 }
 
 const ORDER_TYPE_LABELS: Record<string, string> = {
-  dine_in:  "MOSTRADOR",
-  counter:  "MOSTRADOR",
-  pickup:   "RECOGER",
+  dine_in: "MOSTRADOR",
+  counter: "MOSTRADOR",
+  pickup: "RECOGER",
   delivery: "DELIVERY",
 };
 
 const PAYMENT_LABELS: Record<string, string> = {
-  cash:             "Efectivo",
+  cash: "Efectivo",
   card_on_delivery: "Tarjeta",
-  card_online:      "Online",
-  card:             "Tarjeta",
+  card_online: "Online",
+  card: "Tarjeta",
 };
 
 // ─── CSS generation ───────────────────────────────────────────────────────────
@@ -98,12 +98,12 @@ function buildCss(width: PrintWidth, kitchen: boolean): string {
     html, body { width: ${w}; margin: 0; padding: 0; background: #fff; color: #000; overflow: visible; }
     body { font-family: ui-monospace, Menlo, 'Courier New', Consolas, monospace; font-size: ${baseFontSize}; line-height: 1.4; }
     #ticket-root { width: ${w}; padding: 4mm 5mm ${paddingBottom}; box-sizing: border-box; overflow: visible; }
-    .c   { text-align: center; }
-    .b   { font-weight: 700; }
-    .lg  { font-size: ${kitchen ? "18px" : "14px"}; }
-    .sm  { font-size: 11px; }
+    .c { text-align: center; }
+    .b { font-weight: 700; }
+    .lg { font-size: ${kitchen ? "18px" : "14px"}; }
+    .sm { font-size: 11px; }
     .mut { color: #555; }
-    .nw  { white-space: nowrap; flex-shrink: 0; }
+    .nw { white-space: nowrap; flex-shrink: 0; }
     .ind { padding-left: 14px; margin-top: 1px; font-size: 11px; }
     .ita { font-style: italic; }
     .row { display: flex; justify-content: space-between; align-items: baseline; gap: 4px; }
@@ -286,9 +286,9 @@ export function printRawBT(data: TicketData, type: TicketType): void {
     } else {
       lines.push(`${item.quantity}x ${item.name} ${eur((item.unitPrice ?? 0) * item.quantity)}`);
     }
-    for (const m of item.modifiers ?? []) lines.push(`  + ${m.name}`);
-    for (const e of item.extras ?? []) lines.push(`  * ${e.name}`);
-    if (item.notes) lines.push(`  Nota: ${item.notes}`);
+    for (const m of item.modifiers ?? []) lines.push(` + ${m.name}`);
+    for (const e of item.extras ?? []) lines.push(` * ${e.name}`);
+    if (item.notes) lines.push(` Nota: ${item.notes}`);
   }
 
   lines.push(sep);

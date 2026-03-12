@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
+import { HelpTooltip } from "../components/HelpTooltip";
 import {
   buildOrderConfirmationMessage,
   DEFAULT_WHATSAPP_TEMPLATE,
 } from "../../lib/whatsapp/whatsappService";
 
-import { PrintAppDownload } from "../components/PrintAppDownload";
+import { PrintingSection } from "../components/settings/PrintingSection";
 import { useAdminMembership } from "../components/AdminMembershipContext";
 import { PaymentMethodToggle } from "../components/settings/PaymentMethodToggle";
 import { SettingsTabs, type SettingsTabId } from "../components/settings/SettingsTabs";
@@ -69,6 +70,12 @@ type SettingsRow = {
   print_width?: string | null;
   rawbt_enabled?: boolean | null;
   local_print_url?: string | null;
+  desktop_app_url?: string | null;
+  print_kitchen_separate?: boolean | null;
+  print_sound_enabled?: boolean | null;
+  print_retry_enabled?: boolean | null;
+  auto_print_on_accept?: boolean | null;
+  auto_print_pos?: boolean | null;
   whatsapp_phone?: string | null;
   whatsapp_enabled?: boolean | null;
   whatsapp_message_template?: string | null;
@@ -331,15 +338,17 @@ function Card({
 function Field({
   label,
   hint,
+  tooltip,
   children,
 }: {
   label: string;
   hint?: string;
+  tooltip?: string;
   children: ReactNode;
 }) {
   return (
     <div style={{ display: "grid", gap: 6 }}>
-      <span style={{ fontSize: 13, fontWeight: 500, color: "var(--admin-text-primary)" }}>
+      <span style={{ fontSize: 13, fontWeight: 500, color: "var(--admin-text-primary)", display: "inline-flex", alignItems: "center" }}>
         {label}
         {hint && (
           <span
@@ -352,6 +361,7 @@ function Field({
             {hint}
           </span>
         )}
+        {tooltip && <HelpTooltip text={tooltip} />}
       </span>
       {children}
     </div>
@@ -477,7 +487,6 @@ export default function AdminSettingsPage() {
 
   // Impresión
   const [printMode, setPrintMode] = useState<"browser" | "desktop_app">("browser");
-  const [autoPrintWebOrders, setAutoPrintWebOrders] = useState(false);
   const [autoPrintPosOrders, setAutoPrintPosOrders] = useState(false);
   const [printOnNewOrder, setPrintOnNewOrder] = useState(false);
   const [printOnAccept, setPrintOnAccept] = useState(false);
@@ -485,10 +494,11 @@ export default function AdminSettingsPage() {
   const [customerPrinterName, setCustomerPrinterName] = useState("");
   const [printWidth, setPrintWidth] = useState<"58mm" | "80mm">("80mm");
   const [rawbtEnabled, setRawbtEnabled] = useState(false);
-  const [localPrintUrl, setLocalPrintUrl] = useState("http://127.0.0.1:18181/print");
+  const [desktopAppUrl, setDesktopAppUrl] = useState("http://127.0.0.1:18181");
+  const [printKitchenSeparate, setPrintKitchenSeparate] = useState(false);
+  const [printSoundEnabled, setPrintSoundEnabled] = useState(true);
+  const [printRetryEnabled, setPrintRetryEnabled] = useState(true);
   const [savingPrinting, setSavingPrinting] = useState(false);
-  const [testingConnection, setTestingConnection] = useState(false);
-  const [connectionStatus, setConnectionStatus] = useState<"idle" | "ok" | "error">("idle");
 
   // WhatsApp
   const [whatsappEnabled, setWhatsappEnabled] = useState(false);
@@ -575,7 +585,7 @@ export default function AdminSettingsPage() {
     const settingsRes = await supabase
       .from("restaurant_settings")
       .select(
-        "restaurant_id, is_accepting_orders, delivery_radius_km, delivery_fee, delivery_fee_fixed, delivery_fee_mode, delivery_fee_base, delivery_fee_per_km, delivery_fee_min, delivery_fee_max, free_delivery_over, min_order_amount, allow_cash, allow_card, allow_card_on_delivery, allow_card_online, base_lat, base_lng, restaurant_address, estimated_delivery_minutes, estimated_pickup_minutes, loyalty_enabled, loyalty_points_per_eur, loyalty_min_redeem, loyalty_redeem_value, print_mode, auto_print_web_orders, auto_print_pos_orders, print_on_new_order, print_on_accept, kitchen_printer_name, customer_printer_name, print_width, rawbt_enabled, local_print_url, whatsapp_phone, whatsapp_enabled, whatsapp_message_template, whatsapp_provider"
+        "restaurant_id, is_accepting_orders, delivery_radius_km, delivery_fee, delivery_fee_fixed, delivery_fee_mode, delivery_fee_base, delivery_fee_per_km, delivery_fee_min, delivery_fee_max, free_delivery_over, min_order_amount, allow_cash, allow_card, allow_card_on_delivery, allow_card_online, base_lat, base_lng, restaurant_address, estimated_delivery_minutes, estimated_pickup_minutes, loyalty_enabled, loyalty_points_per_eur, loyalty_min_redeem, loyalty_redeem_value, print_mode, auto_print_web_orders, auto_print_pos_orders, print_on_new_order, print_on_accept, kitchen_printer_name, customer_printer_name, print_width, rawbt_enabled, local_print_url, desktop_app_url, print_kitchen_separate, print_sound_enabled, print_retry_enabled, auto_print_on_accept, auto_print_pos, whatsapp_phone, whatsapp_enabled, whatsapp_message_template, whatsapp_provider"
       )
       .eq("restaurant_id", restaurantId)
       .maybeSingle<SettingsRow>();
@@ -616,15 +626,22 @@ export default function AdminSettingsPage() {
       setLoyaltyMinRedeem(String(toNum(s.loyalty_min_redeem, 100)));
       setLoyaltyRedeemValue(String(toNum(s.loyalty_redeem_value, 1)));
       setPrintMode(s.print_mode === "desktop_app" ? "desktop_app" : "browser");
-      setAutoPrintWebOrders(s.auto_print_web_orders === true);
-      setAutoPrintPosOrders(s.auto_print_pos_orders === true);
-      setPrintOnNewOrder(s.print_on_new_order === true);
-      setPrintOnAccept(s.print_on_accept === true);
+      // Reconcile old/new column names for print-on-new-order
+      setPrintOnNewOrder(s.print_on_new_order === true || s.auto_print_web_orders === true);
+      // Reconcile old/new column names for print-on-accept
+      setPrintOnAccept(s.auto_print_on_accept === true || s.print_on_accept === true);
+      // Reconcile old/new column names for POS auto-print
+      setAutoPrintPosOrders(s.auto_print_pos === true || s.auto_print_pos_orders === true);
       setKitchenPrinterName(s.kitchen_printer_name ?? "");
       setCustomerPrinterName(s.customer_printer_name ?? "");
       setPrintWidth(s.print_width === "58mm" ? "58mm" : "80mm");
       setRawbtEnabled(s.rawbt_enabled === true);
-      setLocalPrintUrl(s.local_print_url ?? "http://127.0.0.1:18181/print");
+      const baseUrl = s.desktop_app_url
+        ?? (s.local_print_url ? s.local_print_url.replace(/\/print\/?$/, "") : "http://127.0.0.1:18181");
+      setDesktopAppUrl(baseUrl);
+      setPrintKitchenSeparate(s.print_kitchen_separate === true);
+      setPrintSoundEnabled(s.print_sound_enabled !== false);
+      setPrintRetryEnabled(s.print_retry_enabled !== false);
       setWhatsappEnabled(s.whatsapp_enabled === true);
       setWhatsappPhone(s.whatsapp_phone ?? "");
       setWhatsappTemplate(
@@ -804,47 +821,34 @@ export default function AdminSettingsPage() {
   const savePrinting = async () => {
     if (!canSave || savingPrinting) return;
     setSavingPrinting(true);
+    const baseUrl = desktopAppUrl.trim() || "http://127.0.0.1:18181";
     const { error } = await supabase
       .from("restaurant_settings")
       .upsert(
         {
           restaurant_id: restaurantId,
           print_mode: printMode,
-          auto_print_web_orders: autoPrintWebOrders,
+          auto_print_web_orders: printOnNewOrder,
           auto_print_pos_orders: autoPrintPosOrders,
           print_on_new_order: printOnNewOrder,
           print_on_accept: printOnAccept,
+          auto_print_on_accept: printOnAccept,
+          auto_print_pos: autoPrintPosOrders,
           kitchen_printer_name: kitchenPrinterName.trim() || null,
           customer_printer_name: customerPrinterName.trim() || null,
           print_width: printWidth,
           rawbt_enabled: rawbtEnabled,
-          local_print_url:
-            localPrintUrl.trim() || "http://127.0.0.1:18181/print",
+          desktop_app_url: baseUrl,
+          local_print_url: `${baseUrl}/print`,
+          print_kitchen_separate: printKitchenSeparate,
+          print_sound_enabled: printSoundEnabled,
+          print_retry_enabled: printRetryEnabled,
         },
         { onConflict: "restaurant_id" }
       );
     if (error) pushToast("error", `Error: ${error.message}`);
     else pushToast("success", "Configuración de impresión guardada.");
     setSavingPrinting(false);
-  };
-
-  const testConnection = async () => {
-    setTestingConnection(true);
-    setConnectionStatus("idle");
-    try {
-      const statusUrl = localPrintUrl.replace(/\/print\/?$/, "/status");
-      const res = await Promise.race([
-        fetch(statusUrl, { method: "GET" }),
-        new Promise<never>((_, reject) =>
-          window.setTimeout(() => reject(new Error("timeout")), 3000)
-        ),
-      ]);
-      setConnectionStatus((res as Response).ok ? "ok" : "error");
-    } catch {
-      setConnectionStatus("error");
-    } finally {
-      setTestingConnection(false);
-    }
   };
 
   // ── Save: whatsapp ─────────────────────────────────────────────────────────
@@ -1200,7 +1204,7 @@ export default function AdminSettingsPage() {
               gap: 12,
             }}
           >
-            <span style={{ fontSize: 22, lineHeight: 1 }}>⚠️</span>
+            <span style={{ fontSize: 22, lineHeight: 1 }}></span>
             <div>
               <strong style={{ color: "#b91c1c", fontSize: 14 }}>
                 Tu restaurante no está aceptando pedidos
@@ -1279,7 +1283,7 @@ export default function AdminSettingsPage() {
         {/* ── Reparto ── */}
         <Card title="Reparto" subtitle="Radio de entrega, tarifas y pedido mínimo">
           <div style={{ display: "grid", gap: 16 }}>
-            <Field label="Radio de reparto (km)">
+            <Field label="Radio de reparto (km)" tooltip="Distancia máxima en km desde tu restaurante hasta la que puedes repartir">
               <div
                 style={{
                   display: "grid",
@@ -1371,7 +1375,7 @@ export default function AdminSettingsPage() {
                   style={inputStyle}
                 />
               </Field>
-              <Field label="Pedido mínimo (€)">
+              <Field label="Pedido mínimo (€)" tooltip="Importe mínimo del pedido para poder hacer el checkout. 0 = sin mínimo">
                 <input
                   className="settings-input"
                   type="number"
@@ -1722,7 +1726,7 @@ export default function AdminSettingsPage() {
                     <Circle
                       center={center}
                       radius={radiusM}
-                      pathOptions={{ color: "#4ec580", fillColor: "#4ec580", fillOpacity: 0.1, weight: 2 }}
+                      pathOptions={{ color: "#3b82f6", fillColor: "#3b82f6", fillOpacity: 0.1, weight: 2 }}
                     />
                   )}
                 </MapContainer>
@@ -1870,9 +1874,9 @@ export default function AdminSettingsPage() {
                   type="button"
                   onClick={() => { void copyLink(); }}
                   style={{
-                    background: copiedLink ? "#22c55e" : "transparent",
+                    background: copiedLink ? "#16a34a" : "transparent",
                     color: copiedLink ? "#fff" : "var(--brand-primary)",
-                    border: `1.5px solid ${copiedLink ? "#22c55e" : "var(--brand-primary)"}`,
+                    border: `1.5px solid ${copiedLink ? "#16a34a" : "var(--brand-primary)"}`,
                     borderRadius: 8,
                     padding: "9px 18px",
                     fontWeight: 600,
@@ -2043,195 +2047,36 @@ export default function AdminSettingsPage() {
         </div>
 
         <div style={{ display: activeTab === "printing" ? "grid" : "none", gap: 16 }}>
-        {/* ── Impresión ── */}
-        <Card
-          title="Configuración de impresión"
-          subtitle="Elige cómo imprimir tickets: popup del navegador o app de escritorio para impresión automática"
-        >
-          {/* Mode selector */}
-          <Field label="Modo de impresión">
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-              {(
-                [
-                  {
-                    value: "browser" as const,
-                    icon: "🌐",
-                    title: "Navegador / Móvil",
-                    desc: "Funciona en cualquier dispositivo. Android: compatible con RawBT. iOS: AirPrint / ventana de impresión.",
-                  },
-                  {
-                    value: "desktop_app" as const,
-                    icon: "🖥️",
-                    title: "App de escritorio",
-                    desc: "Impresión automática. Requiere la app para Windows instalada en el PC con la impresora.",
-                  },
-                ] as const
-              ).map((opt) => (
-                <button
-                  key={opt.value}
-                  type="button"
-                  onClick={() => { if (canManage) setPrintMode(opt.value); }}
-                  style={{
-                    border: `2px solid ${printMode === opt.value ? "var(--brand-primary)" : "var(--admin-card-border)"}`,
-                    borderRadius: 10,
-                    padding: "12px 14px",
-                    textAlign: "left",
-                    cursor: canManage ? "pointer" : "not-allowed",
-                    background: printMode === opt.value ? "var(--brand-primary-soft)" : "#fff",
-                    transition: "border-color 0.15s, background 0.15s",
-                    opacity: canManage ? 1 : 0.6,
-                  }}
-                >
-                  <div style={{ fontSize: 20, marginBottom: 4 }}>{opt.icon}</div>
-                  <div style={{ fontWeight: 600, fontSize: 13, color: "var(--admin-text-primary)" }}>
-                    {opt.title}
-                  </div>
-                  <div style={{ fontSize: 12, color: "var(--admin-text-secondary)", marginTop: 3 }}>
-                    {opt.desc}
-                  </div>
-                </button>
-              ))}
-            </div>
-          </Field>
-
-          {/* Browser-specific options */}
-          {printMode === "browser" && (
-            <>
-              <Field label="RawBT para Android">
-                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                  <Toggle checked={rawbtEnabled} onChange={setRawbtEnabled} disabled={!canManage} />
-                  <span style={{ fontSize: 13, color: "var(--admin-text-secondary)" }}>
-                    {rawbtEnabled
-                      ? "Activo — abre la app RawBT directamente"
-                      : "Inactivo — usa ventana de impresión del navegador"}
-                  </span>
-                </div>
-              </Field>
-            </>
-          )}
-
-          {/* Desktop app options */}
-          {printMode === "desktop_app" && (
-            <>
-              <Field label="URL de la app local" hint="(por defecto: http://127.0.0.1:18181/print)">
-                <input
-                  className="settings-input"
-                  type="url"
-                  value={localPrintUrl}
-                  onChange={(e) => { setLocalPrintUrl(e.target.value); }}
-                  disabled={!canManage}
-                  placeholder="http://127.0.0.1:18181/print"
-                  style={inputStyle}
-                />
-              </Field>
-              <Field label="Impresora cliente" hint="(nombre exacto de la impresora en Windows)">
-                <input
-                  className="settings-input"
-                  type="text"
-                  value={customerPrinterName}
-                  onChange={(e) => { setCustomerPrinterName(e.target.value); }}
-                  disabled={!canManage}
-                  placeholder="Epson TM-T88V"
-                  style={inputStyle}
-                />
-              </Field>
-              <Field label="Impresora cocina" hint="(dejar vacío para usar la misma)">
-                <input
-                  className="settings-input"
-                  type="text"
-                  value={kitchenPrinterName}
-                  onChange={(e) => { setKitchenPrinterName(e.target.value); }}
-                  disabled={!canManage}
-                  placeholder="Star TSP100"
-                  style={inputStyle}
-                />
-              </Field>
-              <PrintAppDownload
-                localPrintUrl={localPrintUrl}
-                onTestConnection={() => { void testConnection(); }}
-                testingConnection={testingConnection}
-                connectionStatus={connectionStatus}
-              />
-            </>
-          )}
-
-          {/* Auto-print triggers */}
-          <Field label="Impresión automática">
-            <div style={{ display: "grid", gap: 10 }}>
-              {(
-                [
-                  {
-                    id: "printOnNewOrder",
-                    label: "Imprimir al recibir pedido web",
-                    value: printOnNewOrder,
-                    set: setPrintOnNewOrder,
-                  },
-                  {
-                    id: "printOnAccept",
-                    label: "Imprimir al aceptar pedido",
-                    value: printOnAccept,
-                    set: setPrintOnAccept,
-                  },
-                  {
-                    id: "autoPrintPosOrders",
-                    label: "Imprimir automáticamente en TPV",
-                    value: autoPrintPosOrders,
-                    set: setAutoPrintPosOrders,
-                  },
-                ] as const
-              ).map((row) => (
-                <div
-                  key={row.id}
-                  className="payment-row"
-                  style={{ display: "flex", alignItems: "center", gap: 14 }}
-                >
-                  <Toggle
-                    checked={row.value}
-                    onChange={row.set}
-                    disabled={!canManage}
-                  />
-                  <span style={{ fontSize: 13, color: "var(--admin-text-primary)" }}>
-                    {row.label}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </Field>
-
-          {/* Ticket width */}
-          <Field label="Ancho del ticket">
-            <div style={{ display: "flex", gap: 8 }}>
-              {(["58mm", "80mm"] as const).map((w) => (
-                <button
-                  key={w}
-                  type="button"
-                  onClick={() => { if (canManage) setPrintWidth(w); }}
-                  style={{
-                    border: `2px solid ${printWidth === w ? "var(--brand-primary)" : "var(--admin-card-border)"}`,
-                    borderRadius: 8,
-                    padding: "6px 16px",
-                    background: printWidth === w ? "var(--brand-primary-soft)" : "#fff",
-                    color: printWidth === w ? "var(--brand-hover)" : "var(--admin-text-primary)",
-                    fontWeight: printWidth === w ? 700 : 400,
-                    fontSize: 13,
-                    cursor: canManage ? "pointer" : "not-allowed",
-                    opacity: canManage ? 1 : 0.6,
-                  }}
-                >
-                  {w}
-                </button>
-              ))}
-            </div>
-          </Field>
-
-          <div style={{ display: "flex", justifyContent: "flex-end" }}>
-            <SaveButton
-              onClick={() => { void savePrinting(); }}
-              saving={savingPrinting}
-              disabled={!canSave}
-            />
-          </div>
-        </Card>
+          <PrintingSection
+            canManage={canManage}
+            restaurantName={restaurantName}
+            printMode={printMode}
+            setPrintMode={setPrintMode}
+            desktopAppUrl={desktopAppUrl}
+            setDesktopAppUrl={setDesktopAppUrl}
+            customerPrinterName={customerPrinterName}
+            setCustomerPrinterName={setCustomerPrinterName}
+            kitchenPrinterName={kitchenPrinterName}
+            setKitchenPrinterName={setKitchenPrinterName}
+            printKitchenSeparate={printKitchenSeparate}
+            setPrintKitchenSeparate={setPrintKitchenSeparate}
+            printWidth={printWidth}
+            setPrintWidth={setPrintWidth}
+            printOnNewOrder={printOnNewOrder}
+            setPrintOnNewOrder={setPrintOnNewOrder}
+            printOnAccept={printOnAccept}
+            setPrintOnAccept={setPrintOnAccept}
+            autoPrintPosOrders={autoPrintPosOrders}
+            setAutoPrintPosOrders={setAutoPrintPosOrders}
+            printSoundEnabled={printSoundEnabled}
+            setPrintSoundEnabled={setPrintSoundEnabled}
+            printRetryEnabled={printRetryEnabled}
+            setPrintRetryEnabled={setPrintRetryEnabled}
+            rawbtEnabled={rawbtEnabled}
+            setRawbtEnabled={setRawbtEnabled}
+            saving={savingPrinting}
+            onSave={() => { void savePrinting(); }}
+          />
         </div>
 
         {/* ── Marketing ── */}

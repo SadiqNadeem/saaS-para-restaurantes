@@ -97,8 +97,8 @@ const STATUS_ORDER = [
   "cancelled",
 ];
 
-const PIE_COLORS = ["#4ec580", "#6366f1"];
-const BRAND = "#4ec580";
+const PIE_COLORS = ["#17212B", "#6366f1"];
+const BRAND = "#17212B";
 const ACCENT = "#6366f1";
 const DAY_MS = 24 * 60 * 60 * 1000;
 

@@ -170,7 +170,7 @@ export default function TableMenuPage() {
   if (pageState === "not_found") {
     return (
       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100vh", gap: 12, padding: 24, fontFamily: "system-ui, sans-serif" }}>
-        <div style={{ fontSize: 48 }}>🔍</div>
+        <div style={{ fontSize: 48 }}></div>
         <h2 style={{ margin: 0, fontSize: 20, fontWeight: 700, color: "#111827" }}>Mesa no encontrada</h2>
         <p style={{ margin: 0, fontSize: 14, color: "#6b7280", textAlign: "center" }}>El código QR no corresponde a ninguna mesa.</p>
       </div>
@@ -180,7 +180,7 @@ export default function TableMenuPage() {
   if (pageState === "inactive") {
     return (
       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100vh", gap: 12, padding: 24, fontFamily: "system-ui, sans-serif" }}>
-        <div style={{ fontSize: 48 }}>🚫</div>
+        <div style={{ fontSize: 48 }}></div>
         <h2 style={{ margin: 0, fontSize: 20, fontWeight: 700, color: "#111827" }}>Mesa no disponible</h2>
         <p style={{ margin: 0, fontSize: 14, color: "#6b7280", textAlign: "center" }}>Esta mesa no está disponible en este momento.</p>
       </div>
@@ -190,7 +190,7 @@ export default function TableMenuPage() {
   if (pageState === "success") {
     return (
       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100vh", gap: 16, padding: 24, fontFamily: "system-ui, sans-serif", background: "#f0fdf4" }}>
-        <div style={{ fontSize: 64 }}>✅</div>
+        <div style={{ fontSize: 64 }}></div>
         <h2 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: "#15803d" }}>¡Pedido enviado!</h2>
         <p style={{ margin: 0, fontSize: 15, color: "#374151", textAlign: "center" }}>
           {table?.name} — Te atenderemos enseguida.

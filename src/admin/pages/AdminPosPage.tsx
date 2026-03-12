@@ -395,7 +395,7 @@ export default function AdminPosPage() {
 
     if (salesResult.error || productsResult.error) {
       const message =
-        salesResult.error?.message ?? productsResult.error?.message ?? "No se pudieron cargar datos del TPV.";
+        salesResult.error?.message ?? productsResult.error?.message ?? "No se pudieron cargar datos de caja.";
       throw new Error(message);
     }
 
@@ -443,7 +443,7 @@ export default function AdminPosPage() {
     try {
       await Promise.all([loadDashboardData(), loadClosings()]);
     } catch (error) {
-      const message = String((error as { message?: unknown })?.message ?? "Error cargando TPV.");
+      const message = String((error as { message?: unknown })?.message ?? "Error cargando caja.");
       setErrorMessage(message);
       pushToast(message);
       setMetrics({ totalRevenue: 0, totalCash: 0, totalCard: 0, totalOrders: 0, avgTicket: 0 });
@@ -554,7 +554,7 @@ export default function AdminPosPage() {
         }}
       >
         <div>
-          <h2 style={{ margin: 0 }}>TPV</h2>
+          <h2 style={{ margin: 0 }}>Caja</h2>
           <p style={{ margin: "4px 0 0", color: "#6b7280" }}>
             Resumen de caja y productos vendidos en el rango seleccionado.
           </p>

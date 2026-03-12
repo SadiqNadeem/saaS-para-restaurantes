@@ -7,7 +7,9 @@
     "dev": "vite --host 0.0.0.0 --port 5173",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "render:promo": "cd promo-video && npx remotion render src/index.ts KebabPromo out/promo.mp4",
+    "stress-test": "npx tsx scripts/stress-test-orders.ts"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
@@ -19,11 +21,13 @@
     "@types/qrcode": "^1.5.6",
     "leaflet": "^1.9.4",
     "lucide-react": "^0.575.0",
+    "openai": "^6.27.0",
     "papaparse": "^5.5.3",
     "qrcode": "^1.5.4",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-leaflet": "^5.0.0",
+    "react-markdown": "^10.1.0",
     "react-router-dom": "^7.13.0",
     "recharts": "^3.7.0",
     "zod": "^4.3.6",

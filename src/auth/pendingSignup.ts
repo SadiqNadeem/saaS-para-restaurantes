@@ -1,10 +1,12 @@
 import { supabase } from "../lib/supabase";
+import { DEFAULT_SIGNUP_PLAN, normalizeSignupPlan, type SignupPlan } from "./signupPlan";
 
 const PENDING_SIGNUP_KEY = "pending_signup_v1";
 
 type PendingSignup = {
   email: string;
   restaurantName: string;
+  plan: SignupPlan;
 };
 
 type PendingSignupResult =
@@ -18,6 +20,7 @@ export function savePendingSignup(input: PendingSignup) {
   const payload: PendingSignup = {
     email: input.email.trim().toLowerCase(),
     restaurantName: input.restaurantName.trim(),
+    plan: normalizeSignupPlan(input.plan),
   };
   window.localStorage.setItem(PENDING_SIGNUP_KEY, JSON.stringify(payload));
 }
@@ -36,8 +39,9 @@ function readPendingSignup(): PendingSignup | null {
     const parsed = JSON.parse(raw) as Partial<PendingSignup>;
     const email = String(parsed.email ?? "").trim().toLowerCase();
     const restaurantName = String(parsed.restaurantName ?? "").trim();
+    const plan = normalizeSignupPlan(parsed.plan);
     if (!email || !restaurantName) return null;
-    return { email, restaurantName };
+    return { email, restaurantName, plan };
   } catch {
     return null;
   }
@@ -112,6 +116,17 @@ export async function maybeCreateRestaurantFromPendingSignup(
 
   if (!restaurantSlug) {
     return { status: "error", message: "No se pudo resolver el slug del restaurante." };
+  }
+
+  if (restaurantId) {
+    const { error: planUpdateError } = await supabase
+      .from("restaurants")
+      .update({ plan: pending.plan ?? DEFAULT_SIGNUP_PLAN })
+      .eq("id", restaurantId);
+
+    if (planUpdateError) {
+      return { status: "error", message: planUpdateError.message };
+    }
   }
 
   clearPendingSignup();

@@ -19,14 +19,21 @@ const Spinner = () => (
  * AdminGate/PosGate handle the deeper per-restaurant access check.
  */
 export default function RestaurantGuard({ children }: { children: ReactNode }) {
-  const { session, loading: authLoading } = useAuth();
+  const { session, loading: authLoading, status } = useAuth();
   const { isSuperadmin, restaurants, loading: storeLoading } = useAdminRestaurantStore();
   const location = useLocation();
 
-  if (authLoading || storeLoading) return <Spinner />;
+  if (authLoading || storeLoading || status === "loading") return <Spinner />;
 
   if (!session) {
     const next = encodeURIComponent(location.pathname + location.search);
+    if (import.meta.env.DEV) {
+      console.warn("[restaurant-guard] redirect -> /login", {
+        reason: "no_session",
+        status,
+        path: location.pathname + location.search,
+      });
+    }
     return <Navigate to={`/login?next=${next}`} replace />;
   }
 

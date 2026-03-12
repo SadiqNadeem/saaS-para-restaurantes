@@ -16,7 +16,7 @@ type Review = {
 function StarRating({ rating }: { rating: number }) {
   return (
     <span style={{ color: "#f59e0b", fontSize: 15, letterSpacing: 1 }}>
-      {Array.from({ length: 5 }, (_, i) => (i < rating ? "★" : "☆")).join("")}
+      {Array.from({ length: 5 }, (_, i) => (i < rating ? "" : "☆")).join("")}
     </span>
   );
 }
@@ -121,7 +121,7 @@ export default function AdminReviewsPage() {
           { label: "Total reseñas", value: reviews.length },
           { label: "Publicadas", value: reviews.filter((r) => r.is_approved).length },
           { label: "Pendientes", value: reviews.filter((r) => !r.is_approved).length },
-          { label: "Valoración media", value: reviews.length > 0 ? `${avgRating.toFixed(1)} ★` : "—" },
+          { label: "Valoración media", value: reviews.length > 0 ? `${avgRating.toFixed(1)} ` : "—" },
         ].map((stat) => (
           <div
             key={stat.label}

@@ -14,13 +14,20 @@ const Spinner = () => (
  * Redirects to /login with ?next= if not authenticated.
  */
 export default function AuthGuard({ children }: { children: ReactNode }) {
-  const { session, loading } = useAuth();
+  const { session, loading, status } = useAuth();
   const location = useLocation();
 
-  if (loading) return <Spinner />;
+  if (loading || status === "loading") return <Spinner />;
 
   if (!session) {
     const next = encodeURIComponent(location.pathname + location.search);
+    if (import.meta.env.DEV) {
+      console.warn("[auth-guard] redirect -> /login", {
+        reason: "no_session",
+        status,
+        path: location.pathname + location.search,
+      });
+    }
     return <Navigate to={`/login?next=${next}`} replace />;
   }
 

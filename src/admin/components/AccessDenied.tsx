@@ -14,7 +14,7 @@ export default function AccessDenied() {
         textAlign: "center",
       }}
     >
-      <div style={{ fontSize: 48, lineHeight: 1 }}>🔒</div>
+      <div style={{ fontSize: 48, lineHeight: 1 }}></div>
       <h2
         style={{
           margin: 0,

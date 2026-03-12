@@ -7,26 +7,44 @@ body,
 
 /* ─── Design tokens ─────────────────────────────────────────── */
 :root {
-  /* Brand */
-  --brand-primary: #4ec580;
-  --brand-hover: #2e8b57;
+  /* ── New brand color system ── */
+  --color-primary: #17212B;
+  --color-primary-hover: #223140;
+  --color-primary-soft: rgba(23, 33, 43, 0.08);
+  --color-primary-border: rgba(23, 33, 43, 0.20);
+  --color-background: #F8FAFC;
+  --color-surface: #FFFFFF;
+  --color-surface-muted: #F1F5F9;
+  --color-border: #D9E2EC;
+  --color-text-main: #0F172A;
+  --color-text-muted: #64748B;
+  --color-accent: #3B82F6;
+  --color-accent-soft: rgba(59, 130, 246, 0.10);
+  --color-accent-border: rgba(59, 130, 246, 0.30);
+  --color-danger: #DC2626;
+  --color-warning: #D97706;
+  --color-success: #16A34A;
+
+  /* ── Brand aliases (legacy compatibility) ── */
+  --brand-primary: #17212B;
+  --brand-hover: #223140;
   --brand-white: #ffffff;
-  --brand-primary-soft: rgba(78, 197, 128, 0.14);
-  --brand-primary-border: rgba(78, 197, 128, 0.45);
+  --brand-primary-soft: rgba(23, 33, 43, 0.08);
+  --brand-primary-border: rgba(23, 33, 43, 0.20);
 
   /* Admin layout */
   --admin-content-bg: #f8fafc;
   --admin-card-bg: #ffffff;
-  --admin-card-border: #e5e7eb;
+  --admin-card-border: #e2e8f0;
   --admin-card-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
   --admin-radius-sm: 8px;
   --admin-radius-md: 12px;
   --admin-radius-lg: 16px;
 
   /* Admin typography */
-  --admin-text-primary: #111827;
-  --admin-text-secondary: #6b7280;
-  --admin-text-muted: #9ca3af;
+  --admin-text-primary: #0f172a;
+  --admin-text-secondary: #64748b;
+  --admin-text-muted: #94a3b8;
 
   /* Status chip tokens */
   --status-pending-bg: #fef3c7;
@@ -61,11 +79,11 @@ body,
 /* ─── Links ─────────────────────────────────────────────────── */
 a {
   font-weight: 500;
-  color: var(--brand-primary);
+  color: var(--color-accent);
   text-decoration: inherit;
 }
 a:hover {
-  color: var(--brand-hover);
+  color: var(--color-primary);
 }
 
 /* ─── Body ──────────────────────────────────────────────────── */
@@ -418,4 +436,9 @@ input[type="radio"] {
 }
 ::-webkit-scrollbar-thumb:hover {
   background: #9ca3af;
+}
+
+@keyframes ht-fade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
 }

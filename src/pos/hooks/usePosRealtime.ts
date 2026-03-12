@@ -221,7 +221,7 @@ export function usePosRealtime({
               if (isWeb) {
                 playAlert();
                 showBrowserNotification(newOrder);
-                pushToast(`🔔 Nuevo pedido web — ${fmtEur(newOrder.total)}`);
+                pushToast(` Nuevo pedido web — ${fmtEur(newOrder.total)}`);
 
                 setNewWebOrderIds((prev) => new Set([...prev, newOrder.id]));
                 setTimeout(() => {

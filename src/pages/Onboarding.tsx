@@ -17,10 +17,10 @@ const DAY_NAMES = [
 ] as const;
 
 const STEP_META = [
-  { title: "Tu restaurante",    desc: "Información básica y configuración de delivery" },
-  { title: "Horarios",          desc: "¿Cuándo está abierto tu restaurante?" },
+  { title: "Tu restaurante", desc: "Información básica y configuración de delivery" },
+  { title: "Horarios", desc: "¿Cuándo está abierto tu restaurante?" },
   { title: "Tu primer producto", desc: "Añade productos para que tu menú no esté vacío" },
-  { title: "¡Listo!",           desc: "Tu restaurante está listo para recibir pedidos" },
+  { title: "¡Listo!", desc: "Tu restaurante está listo para recibir pedidos" },
 ] as const;
 
 // ─── types ───────────────────────────────────────────────────────────────────
@@ -995,7 +995,7 @@ export default function Onboarding() {
                 paddingTop: 8,
               }}
             >
-              <div style={{ fontSize: 64 }}>🎉</div>
+              <div style={{ fontSize: 64 }}></div>
               <h3
                 style={{
                   margin: 0,

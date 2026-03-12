@@ -172,6 +172,7 @@ export default function PosCajaPage() {
         const { data: pmgData } = await supabase
           .from("product_modifier_groups")
           .select("product_id")
+          .eq("restaurant_id", restaurantId)
           .in("product_id", productIds);
 
         if (!alive) return;
@@ -441,7 +442,7 @@ export default function PosCajaPage() {
       <div style={s.cartItems}>
         {cart.length === 0 ? (
           <div style={s.cartEmpty}>
-            <span style={{ display: "block", fontSize: 28, marginBottom: 8 }}>🛒</span>
+            <span style={{ display: "block", fontSize: 28, marginBottom: 8 }}></span>
             Añade productos para empezar
           </div>
         ) : (
@@ -571,7 +572,7 @@ export default function PosCajaPage() {
 
         {payment === "fiado" && (
           <div style={s.fiadoNote}>
-            💰 El cobro queda pendiente. Aparecerá en pedidos como "Pendiente de cobro".
+             El cobro queda pendiente. Aparecerá en pedidos como "Pendiente de cobro".
           </div>
         )}
 
@@ -600,7 +601,7 @@ export default function PosCajaPage() {
           {submitting ? (
             <span style={s.spinner} />
           ) : cart.length > 0 ? (
-            payment === "fiado" ? `FIADO  ${fmtEur(total)}` : `COBRAR  ${fmtEur(total)}`
+            payment === "fiado" ? `FIADO ${fmtEur(total)}` : `COBRAR ${fmtEur(total)}`
           ) : (
             "COBRAR"
           )}
@@ -758,7 +759,7 @@ export default function PosCajaPage() {
           style={s.floatingCartBtn}
           onClick={() => setCartDrawerOpen(true)}
         >
-          🛒 Ver carrito ({totalQty}) — {fmtEur(total)}
+           Ver carrito ({totalQty}) — {fmtEur(total)}
         </button>
       )}
 
@@ -787,6 +788,7 @@ export default function PosCajaPage() {
       {modalProduct && (
         <PosModifierModal
           product={modalProduct}
+          restaurantId={restaurantId}
           onConfirm={handleModalConfirm}
           onClose={() => setModalProduct(null)}
         />

@@ -20,33 +20,38 @@ export type SidebarGroupConfig = {
 };
 
 export const SIDEBAR_GROUPS: SidebarGroupConfig[] = [
-  { id: "menu", label: "Menu", icon: "M", defaultOpen: true, requiredRole: "admin" },
-  { id: "ventas", label: "Ventas", icon: "V", defaultOpen: true, requiredRole: "admin" },
-  { id: "marketing", label: "Marketing", icon: "K", defaultOpen: false, requiredRole: "admin" },
+  { id: "menu", label: "Menu", icon: "MN", defaultOpen: true, requiredRole: "admin" },
+  { id: "marketing", label: "Marketing", icon: "MK", defaultOpen: false, requiredRole: "admin" },
+  { id: "equipo", label: "Equipo", icon: "EQ", defaultOpen: false, requiredRole: "owner" },
+  { id: "ajustes", label: "Ajustes", icon: "AJ", defaultOpen: false, requiredRole: "admin" },
 ];
 
 export const SIDEBAR_ITEMS: SidebarItemConfig[] = [
-  { label: "Dashboard", path: "", icon: "D", end: true },
-  { label: "Pedidos", path: "orders", icon: "O", requiredFeature: "online_ordering" },
-  { label: "Caja", path: "pos", icon: "P", requiredFeature: "pos" },
-  { label: "Mesas", path: "tables", icon: "T", requiredFeature: "tables" },
+  { label: "Dashboard", path: "", icon: "DB", end: true },
+  { label: "TPV", path: "tpv", icon: "TP", requiredFeature: "pos" },
+  { label: "Pedidos", path: "orders", icon: "PD", requiredFeature: "online_ordering" },
+  { label: "Mesas", path: "tables", icon: "MS", requiredFeature: "tables" },
+  { label: "Caja", path: "caja", icon: "CJ", requiredFeature: "pos" },
 
-  { label: "Categorias", path: "categories", icon: "C", group: "menu", requiredRole: "admin" },
-  { label: "Productos", path: "products", icon: "R", group: "menu", requiredRole: "admin" },
-  { label: "Modificadores", path: "modifiers", icon: "M", group: "menu", requiredRole: "admin" },
-  { label: "Importar menu", path: "import", icon: "I", group: "menu", requiredRole: "admin" },
-  { label: "Ver QR", path: "settings#qr-section", icon: "Q", group: "menu", requiredRole: "admin", requiredFeature: "table_qr" },
+  { label: "Categorias", path: "categories", icon: "CT", group: "menu", requiredRole: "admin" },
+  { label: "Productos", path: "products", icon: "PR", group: "menu", requiredRole: "admin" },
+  { label: "Modificadores", path: "modifiers", icon: "MD", group: "menu", requiredRole: "admin" },
+  { label: "Importar menu", path: "import", icon: "IM", group: "menu", requiredRole: "admin" },
 
-  { label: "Metricas", path: "metrics", icon: "E", group: "ventas", requiredRole: "admin", requiredFeature: "metrics" },
-  { label: "Logs", path: "logs", icon: "L", group: "ventas", requiredRole: "admin", requiredFeature: "logs" },
+  { label: "Cupones", path: "coupons", icon: "CP", group: "marketing", requiredRole: "admin", requiredFeature: "coupons" },
+  { label: "Fidelizacion", path: "loyalty", icon: "FD", group: "marketing", requiredRole: "admin", requiredFeature: "loyalty" },
+  { label: "Resenas", path: "reviews", icon: "RS", group: "marketing", requiredRole: "admin" },
+  { label: "Carritos", path: "abandoned-carts", icon: "CR", group: "marketing", requiredRole: "admin" },
+  { label: "WhatsApp", path: "whatsapp", icon: "WA", group: "marketing", requiredRole: "admin", requiredFeature: "whatsapp_chatbot" },
+  { label: "Personalizar web", path: "web-customization", icon: "WB", group: "marketing", requiredRole: "admin", requiredFeature: "website_customization" },
 
-  { label: "Cupones", path: "coupons", icon: "%", group: "marketing", requiredRole: "admin", requiredFeature: "coupons" },
-  { label: "Fidelizacion", path: "loyalty", icon: "F", group: "marketing", requiredRole: "admin", requiredFeature: "loyalty" },
-  { label: "Resenas", path: "reviews", icon: "W", group: "marketing", requiredRole: "admin" },
-  { label: "Carritos", path: "abandoned-carts", icon: "A", group: "marketing", requiredRole: "admin" },
-  { label: "WhatsApp", path: "whatsapp", icon: "H", group: "marketing", requiredRole: "admin", requiredFeature: "whatsapp_chatbot" },
+  { label: "Usuarios y roles", path: "team", icon: "UR", group: "equipo", requiredRole: "owner", requiredFeature: "staff_roles" },
 
-  { label: "Equipo y roles", path: "team", icon: "U", bottom: true, requiredRole: "owner", requiredFeature: "staff_roles" },
-  { label: "Ajustes", path: "settings", icon: "S", bottom: true, requiredRole: "admin" },
-  { label: "Personalizar web", path: "web-customization", icon: "B", bottom: true, requiredRole: "admin", requiredFeature: "website_customization" },
+  { label: "Configuracion", path: "settings", icon: "CF", group: "ajustes", requiredRole: "admin" },
+  { label: "Metricas", path: "metrics", icon: "MT", group: "ajustes", requiredRole: "admin", requiredFeature: "metrics" },
+  { label: "Logs", path: "logs", icon: "LG", group: "ajustes", requiredRole: "admin", requiredFeature: "logs" },
+  { label: "Diagnostico", path: "diagnostics", icon: "DG", group: "ajustes", requiredRole: "admin" },
+
+  { label: "Centro de ayuda", path: "help", icon: "AY", bottom: true },
+  { label: "Soporte", path: "support", icon: "SP", bottom: true },
 ];

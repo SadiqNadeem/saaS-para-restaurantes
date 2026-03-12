@@ -24,7 +24,7 @@ export default function GuestGuard({ children }: { children: ReactNode }) {
   if (session) {
     if (isSuperadmin) return <Navigate to="/superadmin" replace />;
     const first = restaurants[0];
-    if (first) return <Navigate to={`/r/${first.slug}/admin`} replace />;
+    if (first) return <Navigate to="/admin" replace />;
     return <Navigate to="/onboarding" replace />;
   }
 

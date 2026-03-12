@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
-import { BarChart2, LogOut, ScrollText, Store, Users } from "lucide-react";
+import { BarChart2, LogOut, ScrollText, Store, Users, LifeBuoy } from "lucide-react";
 
 import { useAuth } from "../auth/AuthContext";
 import { supabase } from "../lib/supabase";
@@ -31,6 +31,7 @@ export default function SuperAdminLayout() {
       { to: "/superadmin/members", label: "Usuarios", icon: <Users size={16} /> },
       { to: "/superadmin/metrics", label: "Metricas", icon: <BarChart2 size={16} /> },
       { to: "/superadmin/logs", label: "Logs", icon: <ScrollText size={16} /> },
+      { to: "/superadmin/support", label: "Soporte", icon: <LifeBuoy size={16} /> },
     ],
     []
   );
@@ -57,8 +58,8 @@ export default function SuperAdminLayout() {
     borderRadius: 10,
     textDecoration: "none",
     padding: "10px 12px",
-    color: isActive ? "var(--brand-white)" : "rgba(255,255,255,0.9)",
-    background: isActive ? "var(--brand-hover)" : "transparent",
+    color: isActive ? "#fff" : "rgba(255,255,255,0.82)",
+    background: isActive ? "rgba(255,255,255,0.15)" : "transparent",
     fontWeight: isActive ? 700 : 600,
     transition: "background 0.15s ease, color 0.15s ease",
   });

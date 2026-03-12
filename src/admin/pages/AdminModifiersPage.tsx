@@ -1,5 +1,6 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { HelpTooltip } from "../components/HelpTooltip";
 import {
   DndContext,
   PointerSensor,
@@ -389,18 +390,23 @@ export default function AdminModifiersPage() {
       const ids = normalized.map((g) => g.id);
       const { data: pmgData } = await supabase
         .from("product_modifier_groups")
-        .select("group_id, products(id, name)")
-        .in("group_id", ids);
+        .select("modifier_group_id, products!inner(id, name, restaurant_id)")
+        .eq("restaurant_id", restaurantId)
+        .eq("products.restaurant_id", restaurantId)
+        .in("modifier_group_id", ids);
 
       type PmgJoinRow = {
-        group_id: string | null;
-        products: { id: string; name: string | null } | { id: string; name: string | null }[] | null;
+        modifier_group_id: string | null;
+        products:
+          | { id: string; name: string | null; restaurant_id: string | null }
+          | { id: string; name: string | null; restaurant_id: string | null }[]
+          | null;
       };
 
       const map: Record<string, ProductBasic[]> = {};
       for (const row of (pmgData ?? []) as PmgJoinRow[]) {
-        if (!row.group_id) continue;
-        const gid = String(row.group_id);
+        if (!row.modifier_group_id) continue;
+        const gid = String(row.modifier_group_id);
         if (!map[gid]) map[gid] = [];
         const joined = row.products;
         if (!joined) continue;
@@ -970,11 +976,15 @@ export default function AdminModifiersPage() {
             </label>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
               <label style={{ display: "grid", gap: 6 }}>
-                <span style={{ fontSize: 13, color: "#374151" }}>min_select</span>
+                <span style={{ fontSize: 13, color: "#374151", display: "inline-flex", alignItems: "center" }}>
+                  Mínimo <HelpTooltip text="Número mínimo de opciones que el cliente debe elegir. 0 = opcional" />
+                </span>
                 <input type="number" min={0} value={groupDraft.min_select} onChange={(event) => updateGroupDraft("min_select", event.target.value)} disabled={submittingGroupModal} style={{ borderRadius: 8, border: "1px solid #d1d5db", padding: "9px 10px" }} />
               </label>
               <label style={{ display: "grid", gap: 6 }}>
-                <span style={{ fontSize: 13, color: "#374151" }}>max_select (0 = sin limite)</span>
+                <span style={{ fontSize: 13, color: "#374151", display: "inline-flex", alignItems: "center" }}>
+                  Máximo (0 = sin límite) <HelpTooltip text="Número máximo de opciones que el cliente puede elegir" />
+                </span>
                 <input type="number" min={0} value={groupDraft.max_select} onChange={(event) => updateGroupDraft("max_select", event.target.value)} disabled={submittingGroupModal} style={{ borderRadius: 8, border: "1px solid #d1d5db", padding: "9px 10px" }} />
               </label>
             </div>

@@ -218,7 +218,7 @@ export function buildTicketText(rawOrder: unknown, mode: TicketMode): string {
     }
 
     for (const modifier of item.modifiers ?? []) {
-      const prefix = `  + ${modifier.name}`;
+      const prefix = ` + ${modifier.name}`;
       if (mode === "kitchen") {
         lines.push(truncate(prefix, width));
       } else {
@@ -229,7 +229,7 @@ export function buildTicketText(rawOrder: unknown, mode: TicketMode): string {
     }
 
     for (const extra of item.extras ?? []) {
-      const prefix = `  * ${extra.name}`;
+      const prefix = ` * ${extra.name}`;
       if (mode === "kitchen") {
         lines.push(truncate(prefix, width));
       } else {

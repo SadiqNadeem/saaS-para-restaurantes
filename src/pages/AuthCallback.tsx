@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
+import { useAdminRestaurantStore } from "../admin/context/AdminRestaurantContext";
 import { maybeCreateRestaurantFromPendingSignup } from "../auth/pendingSignup";
 import { supabase } from "../lib/supabase";
 
 export default function AuthCallback() {
   const navigate = useNavigate();
+  const { refresh } = useAdminRestaurantStore();
   const redirectedRef = useRef(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -30,10 +32,8 @@ export default function AuthCallback() {
         redirectedRef.current = true;
         const pendingResult = await maybeCreateRestaurantFromPendingSignup(data.session.user.email);
         if (pendingResult.status === "created") {
-          navigate(
-            `/onboarding?restaurant=${pendingResult.slug}&name=${encodeURIComponent(pendingResult.restaurantName)}`,
-            { replace: true }
-          );
+          refresh();
+          navigate("/admin", { replace: true });
           return;
         }
         navigate("/admin", { replace: true });
@@ -55,7 +55,7 @@ export default function AuthCallback() {
     return () => {
       sub.subscription.unsubscribe();
     };
-  }, [navigate]);
+  }, [navigate, refresh]);
 
   return (
     <div

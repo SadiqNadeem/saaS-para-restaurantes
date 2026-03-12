@@ -574,7 +574,7 @@ export default function PosTableSessionPage() {
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
             <span style={{ fontSize: 17, fontWeight: 800, color: "#f1f5f9" }}>{table.name}</span>
             {elapsed && (
-              <span style={{ fontSize: 12, color: "#64748b" }}>⏱ {elapsed}</span>
+              <span style={{ fontSize: 12, color: "#64748b" }}> {elapsed}</span>
             )}
           </div>
           <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
@@ -598,9 +598,9 @@ export default function PosTableSessionPage() {
           <div style={{ display: "flex", gap: 5, marginTop: 10 }}>
             {(
               [
-                { value: "free",     label: "🟢 Libre",     activeBg: "rgba(74,222,128,0.18)",  activeColor: "#4ade80",  activeBorder: "rgba(74,222,128,0.5)" },
-                { value: "occupied", label: "🔴 Ocupada",   activeBg: "rgba(248,113,113,0.18)", activeColor: "#f87171",  activeBorder: "rgba(248,113,113,0.5)" },
-                { value: "reserved", label: "🟡 Reservada", activeBg: "rgba(251,191,36,0.18)",  activeColor: "#fbbf24",  activeBorder: "rgba(251,191,36,0.5)" },
+                { value: "free", label: " Libre", activeBg: "rgba(74,222,128,0.18)", activeColor: "#4ade80", activeBorder: "rgba(74,222,128,0.5)" },
+                { value: "occupied", label: " Ocupada", activeBg: "rgba(248,113,113,0.18)", activeColor: "#f87171", activeBorder: "rgba(248,113,113,0.5)" },
+                { value: "reserved", label: " Reservada", activeBg: "rgba(251,191,36,0.18)", activeColor: "#fbbf24", activeBorder: "rgba(251,191,36,0.5)" },
               ] as const
             ).map(({ value, label, activeBg, activeColor, activeBorder }) => {
               const isActive = table.status === value;
@@ -688,24 +688,24 @@ export default function PosTableSessionPage() {
           {/* Send to kitchen */}
           <button type="button" onClick={() => void handleSendKitchen()} disabled={busy || unsent.length === 0}
             style={{ width: "100%", padding: "12px", borderRadius: 10, border: "1px solid #334155", background: unsent.length > 0 ? "#1e3a5f" : "transparent", color: unsent.length > 0 ? "#60a5fa" : "#334155", fontWeight: 700, fontSize: 14, cursor: busy || unsent.length === 0 ? "not-allowed" : "pointer" }}>
-            🍳 Enviar a cocina {unsent.length > 0 ? `(${unsent.length})` : ""}
+             Enviar a cocina {unsent.length > 0 ? `(${unsent.length})` : ""}
           </button>
 
           {/* Cobrar */}
           <button type="button" onClick={() => setShowPayment(true)} disabled={busy || cart.length === 0}
             style={{ width: "100%", padding: "12px", borderRadius: 10, border: "none", background: cart.length > 0 ? "#4ade80" : "#1e293b", color: cart.length > 0 ? "#052e16" : "#334155", fontWeight: 800, fontSize: 15, cursor: busy || cart.length === 0 ? "not-allowed" : "pointer" }}>
-            💰 Cobrar
+             Cobrar
           </button>
 
           {/* Secondary actions */}
           <div style={{ display: "flex", gap: 6 }}>
             <button type="button" onClick={() => { void loadFreeTables(); setShowChangeTable(true); }} disabled={busy}
               style={{ flex: 1, padding: "9px 6px", borderRadius: 8, border: "1px solid #334155", background: "transparent", color: "#94a3b8", fontSize: 12, fontWeight: 600, cursor: busy ? "not-allowed" : "pointer" }}>
-              ↔ Cambiar mesa
+               Cambiar mesa
             </button>
             <button type="button" onClick={() => void handleCancelAccount()} disabled={busy}
               style={{ flex: 1, padding: "9px 6px", borderRadius: 8, border: "1px solid rgba(248,113,113,0.25)", background: "transparent", color: "#f87171", fontSize: 12, fontWeight: 600, cursor: busy ? "not-allowed" : "pointer" }}>
-              🗑 Cancelar
+               Cancelar
             </button>
           </div>
         </div>
@@ -715,6 +715,7 @@ export default function PosTableSessionPage() {
       {modalProduct && (
         <PosModifierModal
           product={modalProduct}
+          restaurantId={restaurantId}
           onConfirm={handleModalConfirm}
           onClose={() => setModalProduct(null)}
         />

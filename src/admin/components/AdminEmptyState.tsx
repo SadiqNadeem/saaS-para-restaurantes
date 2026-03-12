@@ -7,7 +7,7 @@ type AdminEmptyStateProps = {
 };
 
 export function AdminEmptyState({
-  icon = "📭",
+  icon = "",
   title,
   description,
   actionLabel,

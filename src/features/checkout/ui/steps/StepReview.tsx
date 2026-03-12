@@ -643,7 +643,7 @@ export default function StepReview({
               fontWeight: 600,
             }}
           >
-            ★ Has ganado {Math.round(totalWithTip * loyaltyPointsPerEur)} puntos
+             Has ganado {Math.round(totalWithTip * loyaltyPointsPerEur)} puntos
           </div>
         )}
         {waEnabled && waPhone && waButtonVisible && (
@@ -939,7 +939,7 @@ export default function StepReview({
             fontWeight: 600,
           }}
         >
-          ★ Ganarás {Math.round(totalWithTip * loyaltyPointsPerEur)} puntos con este pedido
+           Ganarás {Math.round(totalWithTip * loyaltyPointsPerEur)} puntos con este pedido
         </div>
       )}
 

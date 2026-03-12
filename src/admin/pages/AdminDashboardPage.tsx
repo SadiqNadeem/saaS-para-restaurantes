@@ -5,6 +5,7 @@ import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxi
 
 import { supabase } from "../../lib/supabase";
 import { useRestaurant } from "../../restaurant/RestaurantContext";
+import { DiagnosticsWidget } from "../components/DiagnosticsWidget";
 
 type RangeKey = "today" | "7d" | "30d";
 
@@ -53,6 +54,8 @@ type RecentOrder = {
   total: number | null;
   customer_name: string | null;
   order_type: string | null;
+  source: string | null;
+  payment_method: string | null;
 };
 
 type HourlyPoint = {
@@ -85,6 +88,40 @@ function statusChipStyle(status: string | null): { label: string; style: CSSProp
       whiteSpace: "nowrap",
     },
   };
+}
+
+function shortOrderId(id: string): string {
+  const value = String(id ?? "").trim().toUpperCase();
+  if (!value) return "N/A";
+  return value.slice(0, 8);
+}
+
+function orderTypeLabel(value: string | null | undefined): string {
+  const raw = String(value ?? "").toLowerCase();
+  if (!raw) return "Sin tipo";
+  if (raw === "delivery" || raw === "domicilio") return "Domicilio";
+  if (raw === "pickup" || raw === "takeaway" || raw === "recoger") return "Recoger";
+  if (raw === "dine_in" || raw === "table" || raw === "mesa") return "Mesa";
+  return String(value);
+}
+
+function sourceLabel(value: string | null | undefined): string {
+  const raw = String(value ?? "").toLowerCase();
+  if (!raw) return "Canal no definido";
+  if (raw === "pos") return "TPV";
+  if (raw === "qr_table") return "Mesa QR";
+  if (raw === "web") return "Web";
+  return String(value);
+}
+
+function paymentMethodLabel(value: string | null | undefined): string {
+  const raw = String(value ?? "").toLowerCase();
+  if (!raw) return "Pago no indicado";
+  if (raw === "cash" || raw === "efectivo") return "Efectivo";
+  if (raw === "card" || raw === "tarjeta") return "Tarjeta";
+  if (raw === "card_online" || raw === "online" || raw === "stripe") return "Online";
+  if (raw === "card_on_delivery") return "Tarjeta";
+  return String(value);
 }
 
 function toNumber(value: unknown): number {
@@ -120,6 +157,13 @@ function startOfDay(date: Date): Date {
 
 function addDays(date: Date, days: number): Date {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate() + days);
+}
+
+function toDateParam(value: Date): string {
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, "0");
+  const day = String(value.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 function toDayLabel(value: unknown): string {
@@ -218,10 +262,12 @@ export default function AdminDashboardPage() {
       setError(null);
 
       const range = getRange(rangeKey);
+      const fromDate = toDateParam(range.from);
+      const toDate = toDateParam(addDays(range.to, -1));
       const { data, error: rpcError } = await supabase.rpc("get_admin_metrics", {
         p_restaurant_id: restaurantId,
-        p_from: range.from.toISOString(),
-        p_to: range.to.toISOString(),
+        p_from: fromDate,
+        p_to: toDate,
       });
 
       if (!alive) return;
@@ -256,7 +302,7 @@ export default function AdminDashboardPage() {
           .maybeSingle(),
         supabase
           .from("orders")
-          .select("id,created_at,status,total,customer_name,order_type")
+          .select("id,created_at,status,total,customer_name,order_type,source,payment_method")
           .eq("restaurant_id", restaurantId)
           .order("created_at", { ascending: false })
           .limit(5),
@@ -282,6 +328,8 @@ export default function AdminDashboardPage() {
             total: typeof r.total === "number" ? r.total : null,
             customer_name: typeof r.customer_name === "string" ? r.customer_name : null,
             order_type: typeof r.order_type === "string" ? r.order_type : null,
+            source: typeof r.source === "string" ? r.source : null,
+            payment_method: typeof r.payment_method === "string" ? r.payment_method : null,
           };
         })
       );
@@ -293,7 +341,7 @@ export default function AdminDashboardPage() {
     };
   }, [restaurantId]);
 
-  // Setup checklist — runs once per restaurant
+  // Setup checklist - runs once per restaurant
   useEffect(() => {
     let alive = true;
 
@@ -351,7 +399,7 @@ export default function AdminDashboardPage() {
     return () => { alive = false; };
   }, [restaurantId]);
 
-  // Abandoned cart stats — last 30 days
+  // Abandoned cart stats - last 30 days
   useEffect(() => {
     let alive = true;
 
@@ -381,7 +429,7 @@ export default function AdminDashboardPage() {
     return () => { alive = false; };
   }, [restaurantId]);
 
-  // Hourly breakdown — only when viewing "today"
+  // Hourly breakdown - only when viewing "today"
   useEffect(() => {
     if (rangeKey !== "today") {
       setHourlyData([]);
@@ -418,14 +466,14 @@ export default function AdminDashboardPage() {
 
   const isNotAccepting = isAcceptingOrders === false;
 
-  // Checklist items — "Restaurante creado" is always done
+  // Checklist items - "Restaurante creado" is always done
   const checklistItems = setup.loaded
     ? [
         { label: "Restaurante creado", done: true, link: null },
         { label: "Al menos 1 producto activo", done: setup.hasProducts, link: `${adminPath}/products` },
         { label: "Horarios configurados", done: setup.hasOpenHours, link: `${adminPath}/settings` },
         { label: "Radio de delivery guardado", done: setup.hasDeliveryRadius, link: `${adminPath}/settings` },
-        { label: "Método de pago configurado", done: setup.hasPaymentMethod, link: `${adminPath}/settings` },
+        { label: "Metodo de pago configurado", done: setup.hasPaymentMethod, link: `${adminPath}/settings` },
         { label: "SEO configurado", done: setup.hasSEO, link: `${adminPath}/settings` },
       ]
     : [];
@@ -435,12 +483,15 @@ export default function AdminDashboardPage() {
 
   return (
     <section style={{ display: "grid", gap: 16 }}>
-      {/* Setup checklist — hidden once everything is configured */}
+      {/* Diagnostics widget */}
+      <DiagnosticsWidget />
+
+      {/* Setup checklist - hidden once everything is configured */}
       {setup.loaded && !allDone ? (
         <div
           style={{
-            border: "1px solid var(--brand-primary-border, rgba(78,197,128,0.45))",
-            background: "var(--brand-primary-soft, rgba(78,197,128,0.08))",
+            border: "1px solid var(--brand-primary-border, rgba(23,33,43,0.20))",
+            background: "var(--brand-primary-soft, rgba(23,33,43,0.08))",
             borderRadius: 12,
             padding: "14px 16px",
           }}
@@ -462,7 +513,7 @@ export default function AdminDashboardPage() {
               style={{
                 fontSize: 13,
                 fontWeight: 700,
-                color: "var(--brand-hover, #2e8b57)",
+                color: "var(--color-primary, #17212B)",
                 background: "#fff",
                 border: "1px solid var(--brand-primary-border)",
                 borderRadius: 999,
@@ -487,7 +538,7 @@ export default function AdminDashboardPage() {
               style={{
                 height: "100%",
                 width: `${(completedCount / checklistItems.length) * 100}%`,
-                background: "var(--brand-hover, #2e8b57)",
+                background: "var(--color-primary, #17212B)",
                 borderRadius: 4,
                 transition: "width 0.4s ease",
               }}
@@ -515,7 +566,7 @@ export default function AdminDashboardPage() {
                     border: item.done
                       ? "none"
                       : "1.5px solid #d1d5db",
-                    background: item.done ? "var(--brand-primary)" : "#fff",
+                    background: item.done ? "var(--color-success, #16a34a)" : "#fff",
                     display: "inline-flex",
                     alignItems: "center",
                     justifyContent: "center",
@@ -525,7 +576,7 @@ export default function AdminDashboardPage() {
                     fontWeight: 900,
                   }}
                 >
-                  {item.done ? "✓" : ""}
+                  {item.done ? "OK" : ""}
                 </span>
                 {!item.done && item.link ? (
                   <Link
@@ -564,9 +615,9 @@ export default function AdminDashboardPage() {
             fontWeight: 600,
           }}
         >
-          <span style={{ fontSize: 22 }}>⚠️</span>
+          <span style={{ fontSize: 22 }}></span>
           <div>
-            <div style={{ fontWeight: 700, marginBottom: 2 }}>El restaurante no está aceptando pedidos</div>
+            <div style={{ fontWeight: 700, marginBottom: 2 }}>El restaurante no esta aceptando pedidos</div>
             <div style={{ fontWeight: 400, fontSize: 13 }}>
               Ve a{" "}
               <Link
@@ -597,19 +648,19 @@ export default function AdminDashboardPage() {
         >
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontWeight: 700, fontSize: 14, color: "#111827", marginBottom: 2 }}>
-              Recuperación de carritos (30 días)
+              Recuperacion de carritos (30 dias)
             </div>
             <div style={{ fontSize: 13, color: "#6b7280" }}>
-              {abandonedStats.recovered} de {abandonedStats.total} carritos recuperados —{" "}
+              {abandonedStats.recovered} de {abandonedStats.total} carritos recuperados -{" "}
               <strong style={{ color: abandonedStats.rate >= 50 ? "#14532d" : "#92400e" }}>
-                {abandonedStats.rate}% tasa de recuperación
+                {abandonedStats.rate}% tasa de recuperacion
               </strong>
             </div>
           </div>
           <Link
             to={`${adminPath}/abandoned-carts`}
             style={{
-              background: "var(--brand-primary, #4ec580)",
+              background: "var(--color-accent, #3b82f6)",
               color: "#fff",
               borderRadius: 8,
               padding: "6px 12px",
@@ -636,13 +687,13 @@ export default function AdminDashboardPage() {
               disabled={loading}
               style={rangeButtonStyle(rangeKey === key)}
             >
-              {key === "today" ? "Hoy" : key === "7d" ? "Últimos 7 días" : "Últimos 30 días"}
+              {key === "today" ? "Hoy" : key === "7d" ? "Ultimos 7 dias" : "Ultimos 30 dias"}
             </button>
           ))}
         </div>
       </header>
 
-      {loading ? <div style={{ opacity: 0.8, fontSize: 14 }}>Cargando métricas...</div> : null}
+      {loading ? <div style={{ opacity: 0.8, fontSize: 14 }}>Cargando metricas...</div> : null}
 
       {error ? (
         <div role="alert" style={alertStyle}>
@@ -664,16 +715,16 @@ export default function AdminDashboardPage() {
 
       {/* Delivered / cancelled chips */}
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-        <span style={chipStyle}>✔ Entregados: {formatInt(metrics.status.delivered)}</span>
+        <span style={chipStyle}> Entregados: {formatInt(metrics.status.delivered)}</span>
         <span style={{ ...chipStyle, color: "#7f1d1d", background: "#fee2e2", border: "1px solid #fecaca" }}>
-          ✕ Cancelados: {formatInt(metrics.status.cancelled)}
+          Cancelados: {formatInt(metrics.status.cancelled)}
         </span>
       </div>
 
-      {/* Hourly chart — today only */}
+      {/* Hourly chart - today only */}
       {rangeKey === "today" ? (
         <section style={panelStyle}>
-          <h3 style={{ margin: "0 0 12px", fontSize: 15 }}>Pedidos por hora — hoy</h3>
+          <h3 style={{ margin: "0 0 12px", fontSize: 15 }}>Pedidos por hora - hoy</h3>
           {loadingHourly ? (
             <div style={{ opacity: 0.7, fontSize: 13 }}>Cargando...</div>
           ) : (
@@ -697,7 +748,7 @@ export default function AdminDashboardPage() {
                 <Tooltip
                   contentStyle={{ borderRadius: 8, border: "1px solid #e5e7eb", fontSize: 12 }}
                   formatter={(value) => [value, "Pedidos"]}
-                  cursor={{ fill: "rgba(78,197,128,0.08)" }}
+                  cursor={{ fill: "rgba(23,33,43,0.06)" }}
                 />
                 <Bar
                   dataKey="pedidos"
@@ -711,10 +762,10 @@ export default function AdminDashboardPage() {
         </section>
       ) : null}
 
-      {/* Daily orders chart — all ranges */}
+      {/* Daily orders chart - all ranges */}
       <section style={panelStyle}>
         <h3 style={{ margin: "0 0 10px", fontSize: 15 }}>
-          {rangeKey === "today" ? "Resumen del día" : "Pedidos por día"}
+          {rangeKey === "today" ? "Resumen del dia" : "Pedidos por dia"}
         </h3>
         {metrics.timeseries.length === 0 ? (
           <div style={{ opacity: 0.75, fontSize: 13 }}>Sin datos para el rango seleccionado.</div>
@@ -734,15 +785,42 @@ export default function AdminDashboardPage() {
         )}
       </section>
 
-      {/* Recent orders */}
+            {/* Recent orders */}
       <section style={panelStyle}>
+        <style>{`
+          .dashboard-order-row {
+            display: grid;
+            grid-template-columns: minmax(230px, 1.6fr) minmax(210px, 1.1fr) auto;
+            align-items: center;
+            gap: 14px;
+            padding: 12px 14px;
+            border: 1px solid #e5e7eb;
+            border-radius: 12px;
+            background: #ffffff;
+            transition: border-color 0.16s ease, box-shadow 0.16s ease, transform 0.16s ease;
+          }
+          .dashboard-order-row:hover {
+            border-color: #cfd8e3;
+            box-shadow: 0 6px 14px rgba(15, 23, 42, 0.08);
+            transform: translateY(-1px);
+          }
+          @media (max-width: 920px) {
+            .dashboard-order-row {
+              grid-template-columns: 1fr;
+              gap: 10px;
+            }
+            .dashboard-order-right {
+              justify-content: space-between;
+            }
+          }
+        `}</style>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-          <h3 style={{ margin: 0, fontSize: 15 }}>Últimos pedidos</h3>
+          <h3 style={{ margin: 0, fontSize: 15 }}>Ultimos pedidos</h3>
           <Link
             to={`${adminPath}/orders`}
-            style={{ fontSize: 13, color: "var(--brand-hover)", fontWeight: 600, textDecoration: "none" }}
+            style={{ fontSize: 13, color: "var(--color-accent, #3b82f6)", fontWeight: 600, textDecoration: "none" }}
           >
-            Ver todos →
+            Ver todos
           </Link>
         </div>
 
@@ -752,46 +830,56 @@ export default function AdminDashboardPage() {
           <div style={{ display: "grid", gap: 8 }}>
             {recentOrders.map((order) => {
               const chip = statusChipStyle(order.status);
+              const orderRef = `#${shortOrderId(order.id)}`;
               return (
-                <div
-                  key={order.id}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 10,
-                    padding: "10px 12px",
-                    border: "1px solid #f3f4f6",
-                    borderRadius: 10,
-                    background: "#fafafa",
-                    flexWrap: "wrap",
-                  }}
-                >
-                  <span style={chip.style}>{chip.label}</span>
-                  <span style={{ flex: 1, fontWeight: 600, fontSize: 14, color: "#111827", minWidth: 100 }}>
-                    {order.customer_name || "Sin nombre"}
-                  </span>
-                  <span style={{ fontSize: 13, color: "#6b7280", whiteSpace: "nowrap" }}>
-                    {formatTime(order.created_at)}
-                  </span>
-                  <span style={{ fontWeight: 700, fontSize: 14, color: "#111827", whiteSpace: "nowrap" }}>
-                    {order.total !== null ? formatMoney(order.total) : "-"}
-                  </span>
-                  <Link
-                    to={`${adminPath}/orders/${order.id}`}
-                    style={{
-                      fontSize: 12,
-                      color: "var(--brand-hover)",
-                      fontWeight: 600,
-                      textDecoration: "none",
-                      whiteSpace: "nowrap",
-                      background: "var(--brand-primary-soft)",
-                      padding: "4px 9px",
-                      borderRadius: 7,
-                    }}
-                  >
-                    Ver detalle →
-                  </Link>
-                </div>
+                <article key={order.id} className="dashboard-order-row">
+                  <div style={{ display: "grid", gap: 6, minWidth: 0 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                      <span style={chip.style}>{chip.label}</span>
+                      <span style={{ fontWeight: 800, fontSize: 13, letterSpacing: 0.3, color: "#1f2937" }}>
+                        {orderRef}
+                      </span>
+                    </div>
+                    <div style={{ fontWeight: 700, fontSize: 14, color: "#0f172a", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {order.customer_name || "Cliente sin nombre"}
+                    </div>
+                    <div style={{ fontSize: 12, color: "#64748b" }}>
+                      {sourceLabel(order.source)}
+                    </div>
+                  </div>
+
+                  <div style={{ display: "grid", gap: 4, fontSize: 12, color: "#475569" }}>
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                      <span style={metaPillStyle}>Tipo: {orderTypeLabel(order.order_type)}</span>
+                      <span style={metaPillStyle}>Hora: {formatTime(order.created_at)}</span>
+                    </div>
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                      <span style={metaPillStyle}>Pago: {paymentMethodLabel(order.payment_method)}</span>
+                    </div>
+                  </div>
+
+                  <div className="dashboard-order-right" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <strong style={{ fontWeight: 800, fontSize: 18, color: "#0f172a", letterSpacing: -0.2, whiteSpace: "nowrap" }}>
+                      {order.total !== null ? formatMoney(order.total) : "-"}
+                    </strong>
+                    <Link
+                      to={`${adminPath}/orders/${order.id}`}
+                      style={{
+                        fontSize: 12,
+                        color: "#0f172a",
+                        fontWeight: 700,
+                        textDecoration: "none",
+                        whiteSpace: "nowrap",
+                        background: "#f8fafc",
+                        border: "1px solid #dbe2ea",
+                        padding: "7px 11px",
+                        borderRadius: 8,
+                      }}
+                    >
+                      Ver detalle
+                    </Link>
+                  </div>
+                </article>
               );
             })}
           </div>
@@ -829,7 +917,7 @@ function rangeButtonStyle(active: boolean): CSSProperties {
     borderRadius: 8,
     border: active ? "1px solid var(--brand-primary)" : "1px solid #e5e7eb",
     background: active ? "var(--brand-primary-soft)" : "#fff",
-    color: active ? "var(--brand-hover)" : "#374151",
+    color: active ? "var(--color-primary, #17212B)" : "#374151",
     padding: "7px 12px",
     cursor: "pointer",
     fontWeight: active ? 700 : 500,
@@ -860,6 +948,19 @@ const chipStyle: CSSProperties = {
   color: "#374151",
   fontWeight: 600,
   fontSize: 13,
+};
+
+const metaPillStyle: CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  border: "1px solid #e2e8f0",
+  background: "#f8fafc",
+  color: "#475569",
+  borderRadius: 999,
+  padding: "3px 8px",
+  fontSize: 11,
+  fontWeight: 600,
+  whiteSpace: "nowrap",
 };
 
 const panelStyle: CSSProperties = {
@@ -903,3 +1004,4 @@ const barLabelStyle: CSSProperties = {
   fontSize: 10,
   color: "#9ca3af",
 };
+

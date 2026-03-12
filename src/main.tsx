@@ -43,6 +43,9 @@ import AdminTeamPage from "./admin/pages/AdminTeamPage";
 import AdminWebCustomizationPage from "./admin/pages/AdminWebCustomizationPage";
 import AdminWhatsAppPage from "./admin/pages/AdminWhatsAppPage";
 import AdminOrderDetailPage from "./features/admin/pages/AdminOrderDetailPage";
+import AdminSupportPage from "./admin/pages/AdminSupportPage";
+import AdminDiagnosticsPage from "./admin/pages/AdminDiagnosticsPage";
+import AdminHelpCenterPage from "./admin/pages/AdminHelpCenterPage";
 
 // ── POS pages ─────────────────────────────────────────────────────────────────
 import PosCajaPage from "./pos/pages/PosCajaPage";
@@ -53,6 +56,7 @@ import PosTablesPage from "./pos/pages/PosTablesPage";
 
 // ── Superadmin pages ──────────────────────────────────────────────────────────
 import SuperAdminLogsPage from "./superadmin/pages/SuperAdminLogsPage";
+import SuperAdminSupportPage from "./superadmin/pages/SuperAdminSupportPage";
 import SuperAdminMembersPage from "./superadmin/pages/SuperAdminMembersPage";
 import SuperAdminMetricsPage from "./superadmin/pages/SuperAdminMetricsPage";
 import SuperAdminRestaurantsPage from "./superadmin/pages/SuperAdminRestaurantsPage";
@@ -91,7 +95,7 @@ createRoot(document.getElementById("root")!).render(
 
             {/* ── PUBLIC LANDING ──────────────────────────────────────────────
                 In path mode: "/" shows the landing page.
-                In subdomain mode: "/" shows the storefront directly.         */}
+                In subdomain mode: "/" shows the storefront directly. */}
             {initialSlug.usesSubdomain ? (
               <Route element={<RestaurantProvider><Outlet /></RestaurantProvider>}>
                 <Route path="/" element={<App />} />
@@ -124,17 +128,18 @@ createRoot(document.getElementById("root")!).render(
               <Route path="members" element={<SuperAdminMembersPage />} />
               <Route path="metrics" element={<SuperAdminMetricsPage />} />
               <Route path="logs" element={<SuperAdminLogsPage />} />
+              <Route path="support" element={<SuperAdminSupportPage />} />
             </Route>
 
             {/* ── /admin SHORTCUT → resolve slug and redirect ──────────────────
                 Works in both path mode and subdomain mode.
-                /admin         → /r/:slug/admin
-                /admin/orders  → /r/:slug/admin/orders                       */}
+                /admin → /r/:slug/admin
+                /admin/orders → /r/:slug/admin/orders */}
             <Route path="/admin" element={<AdminGuard><AdminSlugResolver /></AdminGuard>} />
             <Route path="/admin/*" element={<AdminGuard><AdminSlugResolver /></AdminGuard>} />
 
             {/* ── RESTAURANT ROUTES (/r/:slug) ─────────────────────────────────
-                RestaurantProvider reads :slug from useParams().              */}
+                RestaurantProvider reads :slug from useParams(). */}
             <Route
               path="/r/:slug"
               element={<RestaurantProvider><Outlet /></RestaurantProvider>}
@@ -163,7 +168,9 @@ createRoot(document.getElementById("root")!).render(
                 <Route path="metrics" element={<FeatureRouteGuard featureKey="metrics"><AdminMetricsPage /></FeatureRouteGuard>} />
                 <Route path="orders" element={<FeatureRouteGuard featureKey="online_ordering"><AdminOrdersPage /></FeatureRouteGuard>} />
                 <Route path="orders/:id" element={<FeatureRouteGuard featureKey="online_ordering"><AdminOrderDetailPage /></FeatureRouteGuard>} />
-                <Route path="pos" element={<FeatureRouteGuard featureKey="pos"><AdminPosPage /></FeatureRouteGuard>} />
+                <Route path="caja" element={<FeatureRouteGuard featureKey="pos"><AdminPosPage /></FeatureRouteGuard>} />
+                <Route path="pos" element={<FeatureRouteGuard featureKey="pos"><Navigate to="../caja" replace /></FeatureRouteGuard>} />
+                <Route path="tpv" element={<FeatureRouteGuard featureKey="pos"><Navigate to="../../pos" replace /></FeatureRouteGuard>} />
                 <Route path="categories" element={<AdminCategoriesPage />} />
                 <Route path="products" element={<AdminProductsPage />} />
                 <Route path="products/:id/modifiers" element={<AdminProductModifiersPage />} />
@@ -179,6 +186,9 @@ createRoot(document.getElementById("root")!).render(
                 <Route path="logs" element={<FeatureRouteGuard featureKey="logs"><AdminLogsPage /></FeatureRouteGuard>} />
                 <Route path="import" element={<AdminImportPage />} />
                 <Route path="tables" element={<FeatureRouteGuard featureKey="tables"><AdminTablesPage /></FeatureRouteGuard>} />
+                <Route path="support" element={<AdminSupportPage />} />
+                <Route path="diagnostics" element={<AdminDiagnosticsPage />} />
+                <Route path="help" element={<AdminHelpCenterPage />} />
               </Route>
 
               {/* POS / TPV */}

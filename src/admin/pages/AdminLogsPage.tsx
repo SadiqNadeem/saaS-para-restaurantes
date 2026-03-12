@@ -545,7 +545,7 @@ export default function AdminLogsPage() {
                         color: "var(--admin-text-muted)",
                       }}
                     >
-                      <div style={{ fontSize: 36, marginBottom: 10 }}>📋</div>
+                      <div style={{ fontSize: 36, marginBottom: 10 }}></div>
                       <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 4, color: "var(--admin-text-secondary)" }}>
                         No hay logs
                       </div>

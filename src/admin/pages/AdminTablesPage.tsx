@@ -21,7 +21,7 @@ const STATUS_LABELS: Record<string, string> = {
 
 const STATUS_COLORS: Record<string, { bg: string; color: string }> = {
   free: { bg: "rgba(100,116,139,0.15)", color: "#94a3b8" },
-  occupied: { bg: "rgba(74,197,128,0.14)", color: "#4ec580" },
+  occupied: { bg: "rgba(59,130,246,0.14)", color: "#3b82f6" },
   closing: { bg: "rgba(251,191,36,0.15)", color: "#fbbf24" },
   reserved: { bg: "rgba(251,191,36,0.12)", color: "#fbbf24" },
 };
@@ -91,7 +91,7 @@ function EditTableModal({
         <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
           <button type="button" onClick={onClose} style={{ padding: "9px 18px", borderRadius: 8, border: "1px solid var(--admin-card-border)", background: "transparent", color: "var(--admin-text-secondary)", fontSize: 14, cursor: "pointer", fontWeight: 600 }}>Cancelar</button>
           <button type="button" onClick={() => void handleSubmit()} disabled={saving}
-            style={{ padding: "9px 18px", borderRadius: 8, border: "none", background: "var(--brand-primary)", color: "#052e16", fontSize: 14, cursor: saving ? "not-allowed" : "pointer", fontWeight: 700 }}>
+            style={{ padding: "9px 18px", borderRadius: 8, border: "none", background: "var(--brand-primary)", color: "#fff", fontSize: 14, cursor: saving ? "not-allowed" : "pointer", fontWeight: 700 }}>
             {saving ? "Guardando..." : "Guardar"}
           </button>
         </div>
@@ -206,7 +206,7 @@ export default function AdminTablesPage() {
         </div>
         {canManage && (
           <button type="button" onClick={() => setEditTarget(null)}
-            style={{ padding: "9px 18px", borderRadius: 10, border: "none", background: "var(--brand-primary)", color: "#052e16", fontSize: 14, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>
+            style={{ padding: "9px 18px", borderRadius: 10, border: "none", background: "var(--brand-primary)", color: "#fff", fontSize: 14, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>
             + Nueva mesa
           </button>
         )}
@@ -217,10 +217,10 @@ export default function AdminTablesPage() {
         <div style={{ color: "var(--admin-text-muted)", fontSize: 14, padding: "40px 0", textAlign: "center" }}>Cargando...</div>
       ) : tables.length === 0 ? (
         <div style={{ background: "var(--admin-card-bg)", border: "1px solid var(--admin-card-border)", borderRadius: 14, padding: "48px 24px", textAlign: "center" }}>
-          <div style={{ fontSize: 32, marginBottom: 10 }}>🍽️</div>
+          <div style={{ fontSize: 32, marginBottom: 10 }}></div>
           <p style={{ margin: 0, color: "var(--admin-text-secondary)", fontSize: 14 }}>No hay mesas configuradas.</p>
           {canManage && (
-            <button type="button" onClick={() => setEditTarget(null)} style={{ marginTop: 14, padding: "9px 20px", borderRadius: 8, border: "none", background: "var(--brand-primary)", color: "#052e16", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>
+            <button type="button" onClick={() => setEditTarget(null)} style={{ marginTop: 14, padding: "9px 20px", borderRadius: 8, border: "none", background: "var(--brand-primary)", color: "#fff", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>
               Añadir primera mesa
             </button>
           )}

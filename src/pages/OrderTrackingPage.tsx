@@ -45,7 +45,7 @@ function ReviewPrompt({ orderId, restaurantId }: { orderId: string; restaurantId
           marginTop: 16,
         }}
       >
-        <div style={{ fontSize: 22, marginBottom: 4 }}>★</div>
+        <div style={{ fontSize: 22, marginBottom: 4 }}></div>
         <div style={{ fontWeight: 700, color: "#2e8b57", fontSize: 15 }}>¡Gracias por tu opinión!</div>
         <div style={{ fontSize: 13, color: "#6b7280", marginTop: 2 }}>Tu reseña está pendiente de aprobación.</div>
       </div>
@@ -85,7 +85,7 @@ function ReviewPrompt({ orderId, restaurantId }: { orderId: string; restaurantId
               lineHeight: 1,
             }}
           >
-            ★
+            
           </button>
         ))}
       </div>

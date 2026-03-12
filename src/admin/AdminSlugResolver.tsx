@@ -13,8 +13,8 @@ const Spinner = () => (
  * AdminSlugResolver — handles /admin and /admin/* shortcut URLs.
  *
  * Reads the user's first restaurant membership, then redirects to:
- *   /r/:slug/admin        (if visiting /admin)
- *   /r/:slug/admin/orders (if visiting /admin/orders)
+ * /r/:slug/admin (if visiting /admin)
+ * /r/:slug/admin/orders (if visiting /admin/orders)
  *
  * This lets users bookmark or type /admin without knowing their slug.
  */

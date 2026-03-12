@@ -17,14 +17,21 @@ const Spinner = () => (
  * - Session with membership (or superadmin) -> render children
  */
 export default function AdminGuard({ children }: { children: ReactNode }) {
-  const { session, loading: authLoading } = useAuth();
+  const { session, loading: authLoading, status } = useAuth();
   const { isSuperadmin, restaurants, loading: storeLoading } = useAdminRestaurantStore();
   const location = useLocation();
 
-  if (authLoading || storeLoading) return <Spinner />;
+  if (authLoading || storeLoading || status === "loading") return <Spinner />;
 
   if (!session) {
     const next = encodeURIComponent(location.pathname + location.search);
+    if (import.meta.env.DEV) {
+      console.warn("[admin-guard] redirect -> /login", {
+        reason: "no_session",
+        status,
+        path: location.pathname + location.search,
+      });
+    }
     return <Navigate to={`/login?next=${next}`} replace />;
   }
 

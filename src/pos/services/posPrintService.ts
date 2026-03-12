@@ -50,7 +50,7 @@ function fmtDatetime(iso?: string | null): string {
     hour: "2-digit",
     minute: "2-digit",
   });
-  return `${date}  ${time}`;
+  return `${date} ${time}`;
 }
 
 function fmtTime(iso?: string | null): string {
@@ -61,17 +61,17 @@ function fmtTime(iso?: string | null): string {
 }
 
 const ORDER_TYPE_LABELS: Record<string, string> = {
-  dine_in:  "MOSTRADOR",
-  counter:  "MOSTRADOR",
-  pickup:   "RECOGER",
+  dine_in: "MOSTRADOR",
+  counter: "MOSTRADOR",
+  pickup: "RECOGER",
   delivery: "DELIVERY",
 };
 
 const PAYMENT_LABELS: Record<string, string> = {
-  cash:             "Efectivo",
+  cash: "Efectivo",
   card_on_delivery: "Tarjeta",
-  card_online:      "Online",
-  card:             "Tarjeta",
+  card_online: "Online",
+  card: "Tarjeta",
 };
 
 // ─── Customer ticket HTML renderer ────────────────────────────────────────────
@@ -92,11 +92,11 @@ function renderTicketBody(data: PosTicketData): string {
     items,
   } = data;
 
-  const shortId       = orderId.slice(-6).toUpperCase();
-  const datetime      = fmtDatetime(createdAt);
-  const typeLabel     = ORDER_TYPE_LABELS[orderType ?? ""] ?? (orderType?.toUpperCase() ?? "");
-  const paymentLabel  = PAYMENT_LABELS[paymentMethod ?? ""] ?? (paymentMethod ?? "");
-  const isCash        = paymentMethod === "cash";
+  const shortId = orderId.slice(-6).toUpperCase();
+  const datetime = fmtDatetime(createdAt);
+  const typeLabel = ORDER_TYPE_LABELS[orderType ?? ""] ?? (orderType?.toUpperCase() ?? "");
+  const paymentLabel = PAYMENT_LABELS[paymentMethod ?? ""] ?? (paymentMethod ?? "");
+  const isCash = paymentMethod === "cash";
 
   const itemsHtml = items.map((item) => {
     const lineTotal = item.unitPrice * item.qty;
@@ -206,16 +206,16 @@ const CSS_80MM = `
     box-sizing: border-box;
     overflow: visible;
   }
-  .center  { text-align: center; }
-  .bold    { font-weight: 700; }
-  .lg      { font-size: 14px; }
-  .sm      { font-size: 11px; }
-  .muted   { color: #555; }
-  .nowrap  { white-space: nowrap; flex-shrink: 0; }
-  .indent  { padding-left: 14px; margin-top: 1px; font-size: 11px; }
-  .italic  { font-style: italic; }
-  .row     { display: flex; justify-content: space-between; align-items: baseline; gap: 4px; }
-  .sep     { border: none; border-top: 1px dashed #000; margin: 5px 0; }
+  .center { text-align: center; }
+  .bold { font-weight: 700; }
+  .lg { font-size: 14px; }
+  .sm { font-size: 11px; }
+  .muted { color: #555; }
+  .nowrap { white-space: nowrap; flex-shrink: 0; }
+  .indent { padding-left: 14px; margin-top: 1px; font-size: 11px; }
+  .italic { font-style: italic; }
+  .row { display: flex; justify-content: space-between; align-items: baseline; gap: 4px; }
+  .sep { border: none; border-top: 1px dashed #000; margin: 5px 0; }
   .sep-solid { border: none; border-top: 1px solid #000; margin: 4px 0; }
 
   @media print {
@@ -246,17 +246,17 @@ const CSS_KITCHEN = `
     box-sizing: border-box;
     overflow: visible;
   }
-  .center     { text-align: center; }
+  .center { text-align: center; }
   .restaurant { font-size: 13px; font-weight: 700; margin-bottom: 2px; }
-  .header     { font-size: 16px; font-weight: 900; margin-bottom: 4px; }
-  .indent     { padding-left: 16px; font-size: 13px; }
-  .italic     { font-style: italic; }
-  .note       { color: #555; }
-  .item-row   { display: flex; align-items: baseline; gap: 8px; margin: 6px 0 2px; }
-  .item-qty   { font-size: 20px; font-weight: 900; min-width: 28px; }
-  .item-name  { font-size: 18px; font-weight: 700; }
-  .sep        { border: none; border-top: 1px dashed #000; margin: 6px 0; }
-  .sep-solid  { border: none; border-top: 2px solid #000; margin: 6px 0; }
+  .header { font-size: 16px; font-weight: 900; margin-bottom: 4px; }
+  .indent { padding-left: 16px; font-size: 13px; }
+  .italic { font-style: italic; }
+  .note { color: #555; }
+  .item-row { display: flex; align-items: baseline; gap: 8px; margin: 6px 0 2px; }
+  .item-qty { font-size: 20px; font-weight: 900; min-width: 28px; }
+  .item-name { font-size: 18px; font-weight: 700; }
+  .sep { border: none; border-top: 1px dashed #000; margin: 6px 0; }
+  .sep-solid { border: none; border-top: 2px solid #000; margin: 6px 0; }
 
   @media print {
     @page { size: 80mm auto; margin: 0; }

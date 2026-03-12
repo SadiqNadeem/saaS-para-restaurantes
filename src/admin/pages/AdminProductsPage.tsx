@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AdminEmptyState } from "../components/AdminEmptyState";
+import { HelpTooltip } from "../components/HelpTooltip";
+import { FeatureTour } from "../components/FeatureTour";
 import { CardSkeleton } from "../components/AdminSkeleton";
 import {
   DndContext,
@@ -318,6 +320,9 @@ export default function AdminProductsPage() {
   const navigate = useNavigate();
   const sensors = useSensors(useSensor(PointerSensor));
 
+  const [showTour, setShowTour] = useState(() => {
+    try { return !localStorage.getItem("tour_completed_products"); } catch { return true; }
+  });
   const [categories, setCategories] = useState<CategoryRow[]>([]);
   const [modifierGroups, setModifierGroups] = useState<ModifierGroupRow[]>([]);
   const [products, setProducts] = useState<ProductRow[]>([]);
@@ -330,7 +335,6 @@ export default function AdminProductsPage() {
   const [draft, setDraft] = useState<ProductDraft>(EMPTY_DRAFT);
   const [submittingModal, setSubmittingModal] = useState(false);
   const [selectedModifierGroupIds, setSelectedModifierGroupIds] = useState<string[]>([]);
-  const [bridgeAvailable, setBridgeAvailable] = useState(true);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [localImageUrl, setLocalImageUrl] = useState<string | null>(null);
@@ -381,7 +385,8 @@ export default function AdminProductsPage() {
     }
 
     if (modifierGroupsResult.error) {
-      setError(modifierGroupsResult.error.message || "No se pudieron cargar modificadores.");
+      if (import.meta.env.DEV) console.error("[products] load modifier_groups", modifierGroupsResult.error);
+      setError("No se pudieron cargar los modificadores.");
       setCategories([]);
       setProducts([]);
       setModifierGroups([]);
@@ -510,19 +515,14 @@ export default function AdminProductsPage() {
 
     const { data, error: bridgeError } = await supabase
       .from("product_modifier_groups")
-      .select("group_id, sort_order")
-      .eq("product_id", row.id)
-      .order("sort_order", { ascending: true });
+      .select("modifier_group_id")
+      .eq("product_id", row.id);
 
     if (bridgeError) {
-      const msg = bridgeError.message || "";
-      if (msg.toLowerCase().includes("product_modifier_groups") && msg.toLowerCase().includes("does not exist")) {
-        setBridgeAvailable(false);
-      }
-      pushToast("error", msg || "No se pudieron cargar modificadores asignados.");
+      if (import.meta.env.DEV) console.error("[products] openEditModal product_modifier_groups", bridgeError);
+      pushToast("error", "No se pudieron cargar los modificadores.");
     } else {
-      setBridgeAvailable(true);
-      const ids = (data ?? []).map((entry) => String(entry.group_id ?? "")).filter(Boolean);
+      const ids = (data ?? []).map((entry) => String(entry.modifier_group_id ?? "")).filter(Boolean);
       setSelectedModifierGroupIds(ids);
     }
 
@@ -555,36 +555,30 @@ export default function AdminProductsPage() {
         .eq("product_id", productId);
 
       if (deleteError) {
-        const msg = deleteError.message || "";
-        if (msg.toLowerCase().includes("product_modifier_groups") && msg.toLowerCase().includes("does not exist")) {
-          setBridgeAvailable(false);
-        }
-        throw new Error(msg || "No se pudieron limpiar modificadores del producto.");
+        if (import.meta.env.DEV) console.error("[products] sync delete product_modifier_groups", deleteError);
+        throw new Error("No se pudieron actualizar los modificadores.");
       }
 
       if (groupIds.length === 0) {
-        setBridgeAvailable(true);
         return;
       }
 
       const rows = groupIds.map((groupId, index) => ({
+        restaurant_id: restaurantId,
         product_id: productId,
-        group_id: groupId,
+        modifier_group_id: groupId,
         sort_order: index,
       }));
 
-      const { error: insertError } = await supabase.from("product_modifier_groups").insert(rows);
+      const { error: insertError } = await supabase
+        .from("product_modifier_groups")
+        .insert(rows);
       if (insertError) {
-        const msg = insertError.message || "";
-        if (msg.toLowerCase().includes("product_modifier_groups") && msg.toLowerCase().includes("does not exist")) {
-          setBridgeAvailable(false);
-        }
-        throw new Error(msg || "No se pudieron guardar modificadores del producto.");
+        if (import.meta.env.DEV) console.error("[products] sync insert product_modifier_groups", insertError);
+        throw new Error("No se pudieron actualizar los modificadores.");
       }
-
-      setBridgeAvailable(true);
     },
-    []
+    [restaurantId]
   );
 
   const submitModal = async () => {
@@ -658,8 +652,8 @@ export default function AdminProductsPage() {
         try {
           await syncProductModifierGroups(String(createdProduct.id), selectedModifierGroupIds);
         } catch (syncError) {
-          const message = syncError instanceof Error ? syncError.message : "No se pudieron guardar modificadores.";
-          pushToast("error", message);
+          if (import.meta.env.DEV) console.error("[products] create sync modifiers", syncError);
+          pushToast("error", "No se pudieron actualizar los modificadores.");
           setSubmittingModal(false);
           return;
         }
@@ -708,8 +702,8 @@ export default function AdminProductsPage() {
     try {
       await syncProductModifierGroups(modal.productId, selectedModifierGroupIds);
     } catch (syncError) {
-      const message = syncError instanceof Error ? syncError.message : "No se pudieron guardar modificadores.";
-      pushToast("error", message);
+      if (import.meta.env.DEV) console.error("[products] edit sync modifiers", syncError);
+      pushToast("error", "No se pudieron actualizar los modificadores.");
       setSubmittingModal(false);
       return;
     }
@@ -817,10 +811,42 @@ export default function AdminProductsPage() {
     return Number.isFinite(p) && p === 0 ? "Este producto tendrá precio 0 (será gratuito)." : null;
   }, [modal, draft.price]);
 
+  const handleNavigateCategories = useCallback(() => {
+    if (import.meta.env.DEV) {
+      console.warn("[AI_DEBUG] navigate categories from AdminProductsPage empty-state action", {
+        to: `${adminPath}/categories`,
+      });
+    }
+    navigate(`${adminPath}/categories`);
+  }, [adminPath, navigate]);
+
   const previewSrc = localImageUrl || draft.image_url || null;
 
   return (
     <section style={{ display: "grid", gap: 18, width: "100%" }}>
+      {showTour && (
+        <FeatureTour
+          tourKey="products"
+          steps={[
+            {
+              target: '[data-tour="new-product"]',
+              title: "Crea tu primer producto",
+              content: "Haz clic aquí para añadir un producto a tu carta. Necesitarás nombre, precio y categoría.",
+            },
+            {
+              target: '[data-tour="category-filter"]',
+              title: "Organiza por categorías",
+              content: "Crea categorías como 'Principales', 'Bebidas' o 'Postres' para organizar tu carta.",
+            },
+            {
+              target: '[data-tour="product-list"]',
+              title: "Gestiona tus productos",
+              content: "Desde aquí puedes editar, activar/desactivar o eliminar cualquier producto.",
+            },
+          ]}
+          onComplete={() => setShowTour(false)}
+        />
+      )}
       <header
         style={{
           display: "grid",
@@ -850,25 +876,35 @@ export default function AdminProductsPage() {
             </p>
           </div>
 
-          <button
-            type="button"
-            onClick={openCreateModal}
-            disabled={!canManage || isBusy || !selectedCategoryId}
-            style={{
-              borderRadius: 12,
-              border: "1px solid #0f172a",
-              background: "#0f172a",
-              color: "#ffffff",
-              padding: "10px 14px",
-              fontSize: 14,
-              fontWeight: 600,
-              cursor: !canManage || isBusy || !selectedCategoryId ? "not-allowed" : "pointer",
-              opacity: !canManage || isBusy || !selectedCategoryId ? 0.6 : 1,
-              boxShadow: "0 8px 20px rgba(15, 23, 42, 0.18)",
-            }}
-          >
-            + Producto
-          </button>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <button
+              type="button"
+              data-tour="new-product"
+              onClick={openCreateModal}
+              disabled={!canManage || isBusy || !selectedCategoryId}
+              style={{
+                borderRadius: 12,
+                border: "1px solid #0f172a",
+                background: "#0f172a",
+                color: "#ffffff",
+                padding: "10px 14px",
+                fontSize: 14,
+                fontWeight: 600,
+                cursor: !canManage || isBusy || !selectedCategoryId ? "not-allowed" : "pointer",
+                opacity: !canManage || isBusy || !selectedCategoryId ? 0.6 : 1,
+                boxShadow: "0 8px 20px rgba(15, 23, 42, 0.18)",
+              }}
+            >
+              + Producto
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowTour(true)}
+              style={{ background: "none", border: "none", color: "var(--brand-hover, #2e8b57)", cursor: "pointer", fontSize: 12, fontWeight: 600, textDecoration: "underline" }}
+            >
+              ¿Cómo funciona?
+            </button>
+          </div>
         </div>
       </header>
 
@@ -942,6 +978,7 @@ export default function AdminProductsPage() {
           </label>
           <select
             id="products-category"
+            data-tour="category-filter"
             value={selectedCategoryId}
             onChange={(event) => setSelectedCategoryId(event.target.value)}
             onFocus={() => setCategoryFocused(true)}
@@ -996,7 +1033,7 @@ export default function AdminProductsPage() {
         searchResults.length === 0 ? (
           <div className="admin-card">
             <AdminEmptyState
-              icon="🔍"
+              icon=""
               title="Sin resultados"
               description={`No se encontraron productos con "${searchQuery}".`}
               actionLabel="Limpiar búsqueda"
@@ -1036,13 +1073,25 @@ export default function AdminProductsPage() {
       ) : null}
 
       {/* Category view mode (no search) */}
-      {!loading && searchResults === null && selectedCategoryId && productsInSelectedCategory.length === 0 ? (
-        <div className="admin-card">
+      {!loading && searchResults === null && categories.length === 0 ? (
+        <div className="admin-card" style={{ minHeight: 280, display: "grid", alignItems: "center" }}>
           <AdminEmptyState
-            icon="📦"
-            title="No hay productos en esta categoría"
-            description="Crea tu primer producto con el botón de arriba."
-            actionLabel="+ Crear producto"
+            icon=""
+            title="Tu carta está vacía"
+            description="Crea primero una categoría (como 'Principales', 'Bebidas' o 'Postres') y luego añade tus productos."
+            actionLabel="Ir a Categorías"
+            onAction={handleNavigateCategories}
+          />
+        </div>
+      ) : null}
+
+      {!loading && searchResults === null && categories.length > 0 && selectedCategoryId && productsInSelectedCategory.length === 0 ? (
+        <div className="admin-card" style={{ minHeight: 280, display: "grid", alignItems: "center" }}>
+          <AdminEmptyState
+            icon=""
+            title="Aún no tienes productos"
+            description="Tu carta está vacía. Crea tu primer producto para que los clientes puedan hacer pedidos."
+            actionLabel="+ Crear primer producto"
             onAction={openCreateModal}
           />
         </div>
@@ -1052,6 +1101,7 @@ export default function AdminProductsPage() {
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
           <SortableContext items={productIds} strategy={verticalListSortingStrategy}>
             <div
+              data-tour="product-list"
               style={{
                 display: "grid",
                 gap: 12,
@@ -1126,7 +1176,9 @@ export default function AdminProductsPage() {
             </label>
 
             <label style={{ display: "grid", gap: 6 }}>
-              <span style={{ fontSize: 13, color: "#374151" }}>Precio *</span>
+              <span style={{ fontSize: 13, color: "#374151", display: "inline-flex", alignItems: "center" }}>
+                Precio * <HelpTooltip text="El precio que verán los clientes. Ej: 8.50" />
+              </span>
               <input
                 type="number"
                 min={0}
@@ -1138,7 +1190,7 @@ export default function AdminProductsPage() {
               />
               {priceWarn ? (
                 <div style={{ border: "1px solid #fde68a", background: "#fffbeb", color: "#92400e", borderRadius: 8, padding: "6px 10px", fontSize: 12 }}>
-                  ⚠ {priceWarn}
+                   {priceWarn}
                 </div>
               ) : null}
             </label>
@@ -1155,7 +1207,9 @@ export default function AdminProductsPage() {
             </label>
 
             <div style={{ display: "grid", gap: 6 }}>
-              <span style={{ fontSize: 13, color: "#374151" }}>Control de stock</span>
+              <span style={{ fontSize: 13, color: "#374151", display: "inline-flex", alignItems: "center" }}>
+                Control de stock <HelpTooltip text="Activa esto para que el sistema descuente unidades automáticamente" />
+              </span>
               <label style={{ display: "inline-flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
                 <input
                   type="checkbox"
@@ -1206,7 +1260,9 @@ export default function AdminProductsPage() {
             </div>
 
             <label style={{ display: "grid", gap: 6 }}>
-              <span style={{ fontSize: 13, color: "#374151" }}>Categoria</span>
+              <span style={{ fontSize: 13, color: "#374151", display: "inline-flex", alignItems: "center" }}>
+                Categoria <HelpTooltip text="Agrupa tus productos para que sean fáciles de encontrar" />
+              </span>
               <select
                 value={draft.category_id}
                 onChange={(event) => updateDraft("category_id", event.target.value)}
@@ -1223,20 +1279,6 @@ export default function AdminProductsPage() {
 
             <section style={{ display: "grid", gap: 8 }}>
               <span style={{ fontSize: 13, color: "#374151" }}>Modificadores</span>
-              {!bridgeAvailable ? (
-                <div
-                  style={{
-                    border: "1px solid #fecaca",
-                    background: "#fef2f2",
-                    color: "#991b1b",
-                    borderRadius: 8,
-                    padding: "8px 10px",
-                    fontSize: 13,
-                  }}
-                >
-                  No existe la tabla `product_modifier_groups`.
-                </div>
-              ) : null}
               {modifierGroups.length === 0 ? (
                 <div style={{ color: "#6b7280", fontSize: 13 }}>No hay grupos activos.</div>
               ) : (
@@ -1259,7 +1301,7 @@ export default function AdminProductsPage() {
                       <input
                         type="checkbox"
                         checked={selectedModifierGroupIds.includes(group.id)}
-                        disabled={submittingModal || !bridgeAvailable}
+                        disabled={submittingModal}
                         onChange={() => toggleModifierSelection(group.id)}
                       />
                       <span>{group.name}</span>
@@ -1278,7 +1320,10 @@ export default function AdminProductsPage() {
                   borderRadius: 8,
                   border: "1px solid #d1d5db",
                   background: "#fff",
-                  padding: "8px 12px",
+                  color: "#374151",
+                  fontSize: 14,
+                  fontWeight: 600,
+                  padding: "8px 16px",
                   cursor: submittingModal ? "not-allowed" : "pointer",
                 }}
               >

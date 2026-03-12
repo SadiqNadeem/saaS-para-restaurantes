@@ -1,18 +1,20 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
-import { ChevronDown, ShoppingCart } from "lucide-react";
+import { ChevronDown } from "lucide-react";
 
 import { supabase } from "../lib/supabase";
 import { useRestaurant } from "../restaurant/RestaurantContext";
 import { useAdminMembership } from "./components/AdminMembershipContext";
+import { runErrorCheck } from "./services/diagnosticsService";
 import { useRestaurantFeatures } from "./features/useRestaurantFeatures";
 import { SIDEBAR_GROUPS, SIDEBAR_ITEMS } from "./config/sidebarConfig";
 import type { SidebarItemConfig } from "./config/sidebarConfig";
+import { SupportChatWidget } from "./components/SupportChat/SupportChatWidget";
 
 const SIDEBAR_FULL = 252;
 const SIDEBAR_COLLAPSED = 64;
-const GROUPS_KEY = "admin_sidebar_groups";
+const GROUPS_KEY = "admin_sidebar_v2";
 
 type NavItem = {
   to: string;
@@ -88,6 +90,15 @@ function SidebarItemLink({
       to={to}
       end={end}
       title={collapsed ? label : undefined}
+      onClick={() => {
+        if (import.meta.env.DEV) {
+          if (to.includes("/categories")) {
+            console.warn("[AI_DEBUG] navigate categories from sidebar link", { to, label });
+          } else {
+            console.info("[AI_DEBUG] navigate from sidebar link", { to, label });
+          }
+        }
+      }}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
       style={({ isActive }) => {
@@ -374,11 +385,18 @@ function AdminLayout() {
   );
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
-  const [fabHover, setFabHover] = useState(false);
+
+  // Diagnostics error banner
+  const BANNER_KEY = `diag_banner_dismissed_${restaurantId}`;
+  const [errorCount, setErrorCount] = useState(0);
+  const [bannerDismissed, setBannerDismissed] = useState(() => {
+    try { return sessionStorage.getItem(`diag_banner_dismissed_${restaurantId}`) === "1"; } catch { return false; }
+  });
+  const diagFetched = useRef(false);
 
   // Group open/closed state — persisted in localStorage
   const [groupsOpen, setGroupsOpen] = useState<Record<string, boolean>>(() => {
-    const defaults = { menu: true, ventas: true, marketing: false };
+    const defaults: Record<string, boolean> = { menu: true, marketing: false, equipo: false, ajustes: false };
     try {
       const raw = localStorage.getItem(GROUPS_KEY);
       if (raw) return { ...defaults, ...(JSON.parse(raw) as Record<string, boolean>) };
@@ -402,9 +420,6 @@ function AdminLayout() {
 
   const isGroupOpen = (id: string, defaultOpen: boolean): boolean =>
     groupsOpen[id] !== undefined ? groupsOpen[id] : defaultOpen;
-
-  // POS path — mirrors the same logic PosLayout uses
-  const posPath = menuPath === "/" ? "/pos" : `${menuPath}/pos`;
 
   // Role gate: returns true if the current user meets the requiredRole.
   const canSee = (
@@ -485,7 +500,20 @@ function AdminLayout() {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event, session) => {
-      if (!session && (event === "SIGNED_OUT" || event === "TOKEN_REFRESHED")) {
+      if (import.meta.env.DEV) {
+        console.info("[admin-layout] auth event", {
+          event,
+          hasSession: Boolean(session),
+          targetOnSignOut: menuPath,
+        });
+      }
+      if (!session && event === "SIGNED_OUT") {
+        if (import.meta.env.DEV) {
+          console.warn("[admin-layout] redirect -> public menu", {
+            reason: "signed_out",
+            target: menuPath,
+          });
+        }
         navigate(menuPath);
       }
     });
@@ -495,6 +523,21 @@ function AdminLayout() {
   useEffect(() => {
     setDrawerOpen(false);
   }, [location.pathname]);
+
+  // Fetch error count once on mount (for the alert banner)
+  useEffect(() => {
+    if (diagFetched.current || !restaurantId) return;
+    diagFetched.current = true;
+
+    void runErrorCheck(restaurantId).then((count) => {
+      setErrorCount(count);
+    });
+  }, [restaurantId]);
+
+  const handleDismissBanner = useCallback(() => {
+    setBannerDismissed(true);
+    try { sessionStorage.setItem(BANNER_KEY, "1"); } catch { /* ignore */ }
+  }, [BANNER_KEY]);
 
   const handleSignOut = async () => {
     setSignOutError(null);
@@ -617,7 +660,7 @@ function AdminLayout() {
           <SidebarExternalLink
             href={menuPath}
             label="Ver menú público"
-            icon="↗"
+            icon=""
             collapsed={isCollapsed}
           />
 
@@ -796,7 +839,7 @@ function AdminLayout() {
                   flexShrink: 0,
                 }}
               >
-                ☰
+                
               </button>
             ) : null}
             <div style={{ display: "grid", minWidth: 0 }}>
@@ -843,6 +886,43 @@ function AdminLayout() {
 
             <button
               type="button"
+              onClick={() => {
+                if (import.meta.env.DEV) {
+                  console.info("[AI_DEBUG] clicked assistant topbar button");
+                }
+                window.dispatchEvent(new CustomEvent("open-support-chat"));
+              }}
+              title="Abrir asistente IA"
+              style={{
+                width: 34,
+                height: 34,
+                borderRadius: 8,
+                border: "1px solid #e5e7eb",
+                background: "#ffffff",
+                cursor: "pointer",
+                fontWeight: 800,
+                fontSize: 16,
+                color: "#6b7280",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                flexShrink: 0,
+                transition: "border-color 0.15s, color 0.15s",
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.borderColor = "#3b82f6";
+                e.currentTarget.style.color = "#3b82f6";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.borderColor = "#e5e7eb";
+                e.currentTarget.style.color = "#6b7280";
+              }}
+            >
+              IA
+            </button>
+
+            <button
+              type="button"
               onClick={() => void handleSignOut()}
               style={{
                 borderRadius: 8,
@@ -860,6 +940,66 @@ function AdminLayout() {
             </button>
           </div>
         </header>
+
+        {/* Diagnostics error banner */}
+        {errorCount > 0 && !bannerDismissed && (
+          <div
+            role="alert"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 10,
+              marginBottom: 10,
+              padding: "9px 14px",
+              background: "#ef4444",
+              color: "#fff",
+              borderRadius: 10,
+              fontSize: 13,
+              fontWeight: 600,
+              flexWrap: "wrap",
+            }}
+          >
+            <span>
+               {errorCount} problema{errorCount !== 1 ? "s" : ""} crítico{errorCount !== 1 ? "s" : ""} detectado{errorCount !== 1 ? "s" : ""}
+            </span>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <button
+                type="button"
+                onClick={() => navigate(`${adminPath}/diagnostics`)}
+                style={{
+                  background: "rgba(255,255,255,0.22)",
+                  border: "1px solid rgba(255,255,255,0.4)",
+                  color: "#fff",
+                  borderRadius: 6,
+                  padding: "4px 10px",
+                  fontSize: 12,
+                  fontWeight: 700,
+                  cursor: "pointer",
+                }}
+              >
+                Ver diagnóstico →
+              </button>
+              <button
+                type="button"
+                onClick={handleDismissBanner}
+                aria-label="Cerrar alerta"
+                style={{
+                  background: "transparent",
+                  border: "none",
+                  color: "#fff",
+                  cursor: "pointer",
+                  fontSize: 18,
+                  lineHeight: "1",
+                  padding: "0 2px",
+                  opacity: 0.8,
+                }}
+              >
+                ×
+              </button>
+            </div>
+          </div>
+        )}
 
         {signOutError ? (
           <div
@@ -886,13 +1026,15 @@ function AdminLayout() {
         <nav className="admin-bottom-nav" aria-label="Navegación principal">
           {[
             { to: `${adminPath}`, label: "Dashboard", icon: "D", end: true },
+            { to: `${adminPath}/tpv`, label: "TPV", icon: "T" },
             { to: `${adminPath}/orders`, label: "Pedidos", icon: "O" },
-            { to: `${adminPath}/products`, label: "Productos", icon: "P" },
-            { to: `${adminPath}/pos`, label: "Caja", icon: "T" },
+            { to: `${adminPath}/tables`, label: "Mesas", icon: "M" },
+            { to: `${adminPath}/caja`, label: "Caja", icon: "C" },
           ]
             .filter((item) => {
               if (item.to.endsWith("/orders")) return isEnabled("online_ordering");
-              if (item.to.endsWith("/pos")) return isEnabled("pos");
+              if (item.to.endsWith("/tpv") || item.to.endsWith("/caja")) return isEnabled("pos");
+              if (item.to.endsWith("/tables")) return isEnabled("tables");
               return true;
             })
             .map((item) => (
@@ -911,47 +1053,7 @@ function AdminLayout() {
         </nav>
       ) : null}
 
-      {/* ── FAB: Nueva venta (POS) ── */}
-      <style>{`
-        @keyframes pos-fab-pulse {
-          0%, 100% { box-shadow: 0 4px 20px rgba(34,197,94,0.45), 0 2px 8px rgba(0,0,0,0.18); }
-          50%       { box-shadow: 0 4px 28px rgba(34,197,94,0.72), 0 2px 12px rgba(0,0,0,0.22); }
-        }
-      `}</style>
-      {isEnabled("pos") ? (
-        <button
-          type="button"
-          aria-label="Nueva venta - abrir caja TPV"
-          onClick={() => navigate(posPath)}
-          onMouseEnter={() => setFabHover(true)}
-          onMouseLeave={() => setFabHover(false)}
-          style={{
-            position: "fixed",
-            bottom: 24,
-            right: 24,
-            zIndex: 50,
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-            height: 56,
-            padding: "0 22px",
-            borderRadius: 28,
-            border: "none",
-            background: fabHover ? "#16a34a" : "#22c55e",
-            color: "#fff",
-            cursor: "pointer",
-            fontSize: 15,
-            fontWeight: 700,
-            letterSpacing: "0.02em",
-            animation: "pos-fab-pulse 2.8s ease-in-out infinite",
-            transition: "background 0.15s ease",
-            userSelect: "none",
-          }}
-        >
-          <ShoppingCart size={20} strokeWidth={2.2} />
-          Nueva venta
-        </button>
-      ) : null}
+      <SupportChatWidget />
     </div>
   );
 }

@@ -3,12 +3,14 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 
 import { maybeCreateRestaurantFromPendingSignup } from "../auth/pendingSignup";
 import { useAuth } from "../auth/AuthContext";
+import { useAdminRestaurantStore } from "../admin/context/AdminRestaurantContext";
 import { supabase } from "../lib/supabase";
 
 export default function Login() {
   const location = useLocation();
   const navigate = useNavigate();
   const { session, loading } = useAuth();
+  const { isSuperadmin, restaurants, loading: storeLoading, refresh } = useAdminRestaurantStore();
   const redirectedRef = useRef(false);
 
   const [email, setEmail] = useState("");
@@ -30,12 +32,19 @@ export default function Login() {
     }
   }, [location.search]);
 
+  const getDashboardPath = () => {
+    if (isSuperadmin) return "/superadmin";
+    if (restaurants.length > 0) return "/admin";
+    return "/onboarding";
+  };
+
   useEffect(() => {
-    if (!loading && session && !redirectedRef.current) {
+    if (!loading && !storeLoading && session && !redirectedRef.current) {
       redirectedRef.current = true;
-      navigate(next ?? "/", { replace: true });
+      navigate(next ?? getDashboardPath(), { replace: true });
     }
-  }, [loading, navigate, next, session]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, storeLoading, navigate, next, session]);
 
   const onSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -63,18 +72,16 @@ export default function Login() {
     redirectedRef.current = true;
 
     const pendingResult = await maybeCreateRestaurantFromPendingSignup(email.trim());
-    if (pendingResult.status === "created" && !next) {
-      navigate(
-        `/onboarding?restaurant=${pendingResult.slug}&name=${encodeURIComponent(pendingResult.restaurantName)}`,
-        { replace: true }
-      );
+    if (pendingResult.status === "created") {
+      refresh();
+      navigate(next ?? "/admin", { replace: true });
       return;
     }
 
-    navigate(next ?? "/", { replace: true });
+    navigate(next ?? getDashboardPath(), { replace: true });
   };
 
-  if (loading) {
+  if (loading || storeLoading) {
     return <div style={{ padding: 24 }}>Cargando...</div>;
   }
 
@@ -100,6 +107,12 @@ export default function Login() {
           background: "#ffffff",
         }}
       >
+        <Link
+          to="/"
+          style={{ fontSize: 13, color: "#6b7280", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 4 }}
+        >
+          ← Volver al inicio
+        </Link>
         <h1 style={{ margin: 0, fontSize: 22 }}>Login</h1>
 
         <label style={{ display: "grid", gap: 6 }}>

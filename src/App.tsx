@@ -24,8 +24,7 @@ type Product = {
 
 type ModifierGroupRow = {
   id: string;
-  position: number | null;
-  group_id: string;
+  modifier_group_id: string;
   modifier_groups:
     | {
         id: string;
@@ -33,7 +32,6 @@ type ModifierGroupRow = {
         min_select: number | null;
         max_select: number | null;
         is_active: boolean | null;
-        position: number | null;
       }
     | {
         id: string;
@@ -41,7 +39,6 @@ type ModifierGroupRow = {
         min_select: number | null;
         max_select: number | null;
         is_active: boolean | null;
-        position: number | null;
       }[]
     | null;
 };
@@ -73,7 +70,6 @@ type ActiveModifierGroup = {
   min_select: number | null;
   max_select: number | null;
   is_active: boolean | null;
-  position: number | null;
 };
 
 type AddToCartPayload = {
@@ -472,15 +468,15 @@ export default function App() {
     const { data: assignedData, error: assignedError } = await supabase
       .from("product_modifier_groups")
       .select(
-        "id, position, group_id, modifier_groups ( id, name, min_select, max_select, is_active, position )"
+        "id, modifier_group_id, modifier_groups!product_modifier_groups_modifier_group_id_fkey ( id, name, min_select, max_select, is_active )"
       )
+      .eq("restaurant_id", restaurantId)
       .eq("product_id", product.id)
-      .eq("modifier_groups.restaurant_id", restaurantId)
-      .order("position", { ascending: true });
+      .eq("modifier_groups.restaurant_id", restaurantId);
 
     if (assignedError) {
-      console.error(assignedError);
-      setModifiersError(assignedError.message);
+      if (import.meta.env.DEV) console.error("[storefront] load assigned modifiers", assignedError);
+      setModifiersError("No se pudieron cargar los modificadores.");
       setModifiersLoading(false);
       return;
     }
@@ -519,8 +515,8 @@ export default function App() {
       .order("position", { ascending: true });
 
     if (optionsError) {
-      console.error(optionsError);
-      setModifiersError(optionsError.message);
+      if (import.meta.env.DEV) console.error("[storefront] load modifier options", optionsError);
+      setModifiersError("No se pudieron cargar los modificadores.");
       setModifiersLoading(false);
       return;
     }

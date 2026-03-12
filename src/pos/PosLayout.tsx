@@ -17,9 +17,9 @@ const ROLE_LABELS: Record<string, string> = {
 
 const ROLE_COLORS: Record<string, { bg: string; color: string }> = {
   superadmin: { bg: "rgba(168,85,247,0.2)", color: "#c084fc" },
-  owner:      { bg: "rgba(74,222,128,0.15)", color: "#4ade80" },
-  admin:      { bg: "rgba(59,130,246,0.15)", color: "#60a5fa" },
-  staff:      { bg: "rgba(100,116,139,0.15)", color: "#94a3b8" },
+  owner: { bg: "rgba(74,222,128,0.15)", color: "#4ade80" },
+  admin: { bg: "rgba(59,130,246,0.15)", color: "#60a5fa" },
+  staff: { bg: "rgba(100,116,139,0.15)", color: "#94a3b8" },
 };
 
 // ─── Inner layout (consumes context) ─────────────────────────────────────────
@@ -109,7 +109,7 @@ function PosLayoutInner() {
             zIndex: 100,
           }}
         >
-          <span style={{ fontSize: 18 }}>🔔</span>
+          <span style={{ fontSize: 18 }}></span>
           <span>
             {pendingWebCount === 1
               ? "1 pedido web pendiente de atender"
@@ -346,7 +346,7 @@ function PosLayoutInner() {
             }}
           >
             <span style={{ fontSize: 12, fontWeight: 600, color: "#64748b" }}>
-              🖨️ Auto-imprimir
+               Auto-imprimir
             </span>
             <button
               type="button"

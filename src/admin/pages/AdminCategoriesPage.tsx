@@ -663,9 +663,9 @@ export default function AdminCategoriesPage() {
       {!loading && rows.length === 0 ? (
         <div className="admin-card" style={{ minHeight: 280, display: "grid", alignItems: "center" }}>
           <AdminEmptyState
-            icon="🗂️"
-            title="No hay categorías aún"
-            description="Crea tu primera categoría para organizar el menú."
+            icon=""
+            title="Sin categorías todavía"
+            description="Las categorías agrupan tus productos. Crea una para empezar: Principales, Bebidas, Postres..."
             actionLabel="+ Crear categoría"
             onAction={openCreateModal}
           />

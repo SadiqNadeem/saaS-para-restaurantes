@@ -149,7 +149,7 @@ function OrderElapsedTimer({ since, status }: { since: string | null | undefined
 
   return (
     <span style={{ color, fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>
-      ⏱ {label}
+       {label}
     </span>
   );
 }
@@ -246,13 +246,13 @@ function statusColors(
   status: OrderStatus | null | undefined
 ): { bg: string; border: string; text: string } {
   const palette: Record<OrderStatus, { bg: string; border: string; text: string }> = {
-    pending:          { bg: "#fff7ed", border: "#fdba74", text: "#9a3412" },
-    accepted:         { bg: "#eff6ff", border: "#93c5fd", text: "#1d4ed8" },
-    preparing:        { bg: "#fff7ed", border: "#fdba74", text: "#c2410c" },
-    ready:            { bg: "#ecfdf3", border: "#86efac", text: "#15803d" },
+    pending: { bg: "#fff7ed", border: "#fdba74", text: "#9a3412" },
+    accepted: { bg: "#eff6ff", border: "#93c5fd", text: "#1d4ed8" },
+    preparing: { bg: "#fff7ed", border: "#fdba74", text: "#c2410c" },
+    ready: { bg: "#ecfdf3", border: "#86efac", text: "#15803d" },
     out_for_delivery: { bg: "#f5f3ff", border: "#c4b5fd", text: "#6d28d9" },
-    delivered:        { bg: "#f0fdf4", border: "#86efac", text: "#166534" },
-    cancelled:        { bg: "#fef2f2", border: "#fca5a5", text: "#b91c1c" },
+    delivered: { bg: "#f0fdf4", border: "#86efac", text: "#166534" },
+    cancelled: { bg: "#fef2f2", border: "#fca5a5", text: "#b91c1c" },
   };
   return palette[normalizeStatus(status)] ?? palette.pending;
 }
@@ -396,26 +396,26 @@ function orderToTicketData(
 
 function getNextAction(status: OrderStatus | null | undefined): NextAction | null {
   switch (normalizeStatus(status)) {
-    case "pending":          return { label: "Aceptar",    value: "accepted" };
-    case "accepted":         return { label: "Preparando", value: "preparing" };
-    case "preparing":        return { label: "Listo",      value: "ready" };
-    case "ready":            return { label: "Entregar",   value: "out_for_delivery" };
-    case "out_for_delivery": return { label: "Entregado",  value: "delivered" };
-    default:                 return null;
+    case "pending": return { label: "Aceptar", value: "accepted" };
+    case "accepted": return { label: "Preparando", value: "preparing" };
+    case "preparing": return { label: "Listo", value: "ready" };
+    case "ready": return { label: "Entregar", value: "out_for_delivery" };
+    case "out_for_delivery": return { label: "Entregado", value: "delivered" };
+    default: return null;
   }
 }
 
 // ������ Constants ��������������������������������������������������������������������������������������������������������������������������������
 
 const STATUS_FILTERS: Array<{ value: StatusFilter; label: string }> = [
-  { value: "all",              label: "Todos" },
-  { value: "pending",          label: "Pendiente" },
-  { value: "accepted",         label: "Aceptado" },
-  { value: "preparing",        label: "Preparando" },
-  { value: "ready",            label: "Listo" },
+  { value: "all", label: "Todos" },
+  { value: "pending", label: "Pendiente" },
+  { value: "accepted", label: "Aceptado" },
+  { value: "preparing", label: "Preparando" },
+  { value: "ready", label: "Listo" },
   { value: "out_for_delivery", label: "En reparto" },
-  { value: "delivered",        label: "Entregado" },
-  { value: "cancelled",        label: "Cancelado" },
+  { value: "delivered", label: "Entregado" },
+  { value: "cancelled", label: "Cancelado" },
 ];
 
 const PANEL_ACTION_STATUSES = [
@@ -435,11 +435,11 @@ const KANBAN_COLUMNS: KanbanColumn[] = [
 ];
 
 const PANEL_ACTION_LABELS: Record<string, string> = {
-  accepted:         "Aceptar",
-  preparing:        "En preparación",
-  ready:            "Marcar listo",
+  accepted: "Aceptar",
+  preparing: "En preparación",
+  ready: "Marcar listo",
   out_for_delivery: "En reparto",
-  delivered:        "Marcar entregado",
+  delivered: "Marcar entregado",
 };
 
 // ������ Component ��������������������������������������������������������������������������������������������������������������������������������
@@ -965,7 +965,7 @@ export default function AdminOrdersPage() {
       <style>{`
         @keyframes aop-pulse {
           0%, 100% { opacity: 1; transform: scale(1); }
-          50%       { opacity: 0.6; transform: scale(1.3); }
+          50% { opacity: 0.6; transform: scale(1.3); }
         }
         @keyframes aop-new-glow {
           0%, 100% { box-shadow: 0 6px 18px rgba(251, 146, 60, 0.14); }
@@ -1298,9 +1298,9 @@ export default function AdminOrdersPage() {
             />
           ) : (
             <AdminEmptyState
-              icon="O"
-              title="Aun no hay pedidos"
-              description="Los nuevos pedidos apareceran aqui en tiempo real."
+              icon=""
+              title="Aún no hay pedidos"
+              description="Cuando un cliente haga un pedido aparecerá aquí en tiempo real. Comparte tu carta para empezar a recibir pedidos."
             />
           )}
         </div>

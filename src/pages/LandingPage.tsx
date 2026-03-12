@@ -46,7 +46,7 @@ export default function LandingPage() {
               fontSize: 15,
             }}
           >
-            Registrarse
+            Crear cuenta gratis
           </Link>
         </div>
       </div>
