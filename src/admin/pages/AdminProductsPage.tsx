@@ -632,6 +632,7 @@ export default function AdminProductsPage() {
       created_at: item.created_at ? String(item.created_at) : null,
       track_stock: item.track_stock === true,
       stock_quantity: typeof item.stock_quantity === "number" ? item.stock_quantity : 0,
+      is_upsell: item.is_upsell === true,
     }));
 
     const normalizedModifierGroups: ModifierGroupRow[] = (modifierGroupsResult.data ?? []).map((item) => ({

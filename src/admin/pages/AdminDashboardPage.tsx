@@ -920,8 +920,8 @@ export default function AdminDashboardPage() {
               />
               <Tooltip
                 contentStyle={{ borderRadius: 8, border: "1px solid #e5e7eb", fontSize: 12 }}
-                formatter={(value: number, name: string) => [
-                  formatMoney(value),
+                formatter={(value: number | undefined, name: string | undefined) => [
+                  formatMoney(value ?? 0),
                   name === "estaS" ? "Esta semana" : "Semana anterior",
                 ]}
                 cursor={{ fill: "rgba(23,33,43,0.04)" }}

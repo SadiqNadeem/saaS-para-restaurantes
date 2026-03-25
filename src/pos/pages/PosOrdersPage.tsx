@@ -761,8 +761,7 @@ export default function PosOrdersPage() {
                   onAdvance={(newStatus) => void updateOrderStatus(order, newStatus)}
                   onReprint={() => void handleReprint(order)}
                   onReprintKitchen={() => void handleReprintKitchen(order)}
-                  onCollect={(e) => {
-                    (e as React.MouseEvent).stopPropagation();
+                  onCollect={() => {
                     setCollectModal({ orderId: order.id, total: order.total ?? 0 });
                   }}
                   onOpenDetail={() => setSelectedOrderId(order.id)}

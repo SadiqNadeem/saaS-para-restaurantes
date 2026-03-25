@@ -782,8 +782,8 @@ export default function AdminPosPage() {
               />
               <Tooltip
                 contentStyle={{ borderRadius: 8, border: "1px solid #e5e7eb", fontSize: 12 }}
-                formatter={(value: number, name: string) =>
-                  name === "total" ? [formatMoney(value), "Ventas"] : [value, "Pedidos"]
+                formatter={(value: number | undefined, name: string | undefined) =>
+                  name === "total" ? [formatMoney(value ?? 0), "Ventas"] : [value ?? 0, "Pedidos"]
                 }
                 labelFormatter={(label) => `Fecha: ${label}`}
                 cursor={{ fill: "rgba(23,33,43,0.04)" }}

@@ -601,7 +601,7 @@ export default function TableMenuPage() {
 
       type PmgRow = { product_id: string; sort_order: number; modifier_groups: { id: string; name: string; min_select: number; max_select: number; is_active: boolean; modifier_options: ModifierOption[] } | null };
       const groupsByProduct = new Map<string, ModifierGroup[]>();
-      for (const r of (pmgData ?? []) as PmgRow[]) {
+      for (const r of (pmgData ?? []) as unknown as PmgRow[]) {
         const g = r.modifier_groups;
         if (!g || !g.is_active) continue;
         if (!groupsByProduct.has(r.product_id)) groupsByProduct.set(r.product_id, []);

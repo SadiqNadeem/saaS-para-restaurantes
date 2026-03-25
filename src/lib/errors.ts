@@ -70,7 +70,6 @@ export class AppError extends Error {
     this.status = options?.status ?? codeToStatus(code);
     this.meta = options?.meta;
     if (options?.cause) {
-      // @ts-expect-error — cause es ES2022, TS lo soporta con target >= ES2022
       this.cause = options.cause;
     }
   }
