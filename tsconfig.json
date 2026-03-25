@@ -13,14 +13,18 @@
     "isolatedModules": true,
     "jsx": "preserve",
     "incremental": true,
-    "plugins": [{ "name": "next" }]
+    "plugins": [{ "name": "next" }],
+    "paths": {
+      "@/*": ["./src/*"]
+    }
   },
   "include": [
     "next-env.d.ts",
     "app/**/*",
     "components/**/*",
     "lib/**/*",
+    "src/**/*",
     ".next/types/**/*.ts"
   ],
-  "exclude": ["node_modules", "src", "promo-video", "supabase", "scripts", "dist"]
+  "exclude": ["node_modules", "promo-video", "supabase", "scripts", "dist"]
 }
