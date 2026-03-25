@@ -6,6 +6,19 @@ import AccessDenied from "../components/AccessDenied";
 import { useRestaurantRole } from "../hooks/useRestaurantRole";
 import type { JobRole, RestaurantRole } from "../components/AdminMembershipContext";
 
+// ── Invitation types ──────────────────────────────────────────────────────────
+
+type Invitation = {
+  id: string;
+  token: string;
+  access_role: RestaurantRole;
+  job_role: JobRole | null;
+  note: string | null;
+  expires_at: string;
+  used_at: string | null;
+  created_at: string;
+};
+
 // ── Types ──────────────────────────────────────────────────────────────────
 
 type Member = {
@@ -327,6 +340,15 @@ export default function AdminTeamPage() {
 
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
 
+  // Invitation state
+  const [invitations, setInvitations] = useState<Invitation[]>([]);
+  const [showInviteForm, setShowInviteForm] = useState(false);
+  const [inviteRole, setInviteRole] = useState<RestaurantRole>("staff");
+  const [inviteJobRole, setInviteJobRole] = useState<JobRole | "">("");
+  const [inviteNote, setInviteNote] = useState("");
+  const [creatingInvite, setCreatingInvite] = useState(false);
+  const [copiedToken, setCopiedToken] = useState<string | null>(null);
+
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -376,6 +398,61 @@ export default function AdminTeamPage() {
     void loadMembers();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [restaurantId]);
+
+  const loadInvitations = async () => {
+    if (!restaurantId) return;
+    const { data } = await supabase
+      .from("restaurant_invitations")
+      .select("id, token, access_role, job_role, note, expires_at, used_at, created_at")
+      .eq("restaurant_id", restaurantId)
+      .is("used_at", null)
+      .gt("expires_at", new Date().toISOString())
+      .order("created_at", { ascending: false });
+    setInvitations((data ?? []) as Invitation[]);
+  };
+
+  useEffect(() => {
+    if (canManageTeam) void loadInvitations();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [restaurantId, canManageTeam]);
+
+  const handleCreateInvite = async () => {
+    if (!restaurantId) return;
+    setCreatingInvite(true);
+    const { data: userData } = await supabase.auth.getUser();
+    const { error } = await supabase.from("restaurant_invitations").insert({
+      restaurant_id: restaurantId,
+      access_role: inviteRole,
+      job_role: inviteJobRole || null,
+      note: inviteNote.trim() || null,
+      invited_by: userData.user?.id ?? null,
+    });
+    setCreatingInvite(false);
+    if (!error) {
+      setShowInviteForm(false);
+      setInviteRole("staff");
+      setInviteJobRole("");
+      setInviteNote("");
+      void loadInvitations();
+    }
+  };
+
+  const handleRevokeInvite = async (inviteId: string) => {
+    await supabase
+      .from("restaurant_invitations")
+      .delete()
+      .eq("id", inviteId)
+      .eq("restaurant_id", restaurantId!);
+    setInvitations((prev) => prev.filter((i) => i.id !== inviteId));
+  };
+
+  const copyInviteLink = (token: string) => {
+    const link = `${window.location.origin}/invite/${token}`;
+    void navigator.clipboard.writeText(link).then(() => {
+      setCopiedToken(token);
+      setTimeout(() => setCopiedToken(null), 2500);
+    });
+  };
 
   const handleSaveMember = async (memberId: string, updates: Partial<Member>) => {
     const { error } = await supabase
@@ -732,6 +809,196 @@ export default function AdminTeamPage() {
               }}
             >
               Miembro añadido correctamente.
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Invite with link */}
+      {canManageTeam && (
+        <div style={cardStyle}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
+            <h2 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: "#111827" }}>
+              Invitar con enlace
+            </h2>
+            <button
+              type="button"
+              onClick={() => setShowInviteForm((v) => !v)}
+              style={{
+                padding: "6px 14px",
+                borderRadius: 8,
+                border: "none",
+                background: "var(--brand-primary, #4ec580)",
+                color: "#fff",
+                cursor: "pointer",
+                fontSize: 13,
+                fontWeight: 700,
+              }}
+            >
+              {showInviteForm ? "Cancelar" : "+ Nuevo enlace"}
+            </button>
+          </div>
+          <p style={{ margin: "0 0 12px", fontSize: 13, color: "#6b7280" }}>
+            Genera un enlace único que expira en 48 h. El invitado se registra/loguea y queda añadido automáticamente.
+          </p>
+
+          {/* Create form */}
+          {showInviteForm && (
+            <div
+              style={{
+                padding: 14,
+                borderRadius: 10,
+                background: "#f8fafc",
+                border: "1px solid #e5e7eb",
+                display: "flex",
+                flexDirection: "column",
+                gap: 12,
+                marginBottom: 12,
+              }}
+            >
+              <div style={{ display: "flex", gap: 8 }}>
+                <label style={{ flex: 1, display: "flex", flexDirection: "column", gap: 4, fontSize: 13 }}>
+                  <span style={{ fontWeight: 600 }}>Rol de acceso</span>
+                  <select
+                    value={inviteRole}
+                    onChange={(e) => setInviteRole(e.target.value as RestaurantRole)}
+                    style={{ border: "1px solid #e5e7eb", borderRadius: 8, padding: "7px 10px", fontSize: 13 }}
+                  >
+                    <option value="admin">Admin</option>
+                    <option value="staff">Staff</option>
+                  </select>
+                </label>
+                <label style={{ flex: 1, display: "flex", flexDirection: "column", gap: 4, fontSize: 13 }}>
+                  <span style={{ fontWeight: 600 }}>Puesto</span>
+                  <select
+                    value={inviteJobRole}
+                    onChange={(e) => setInviteJobRole(e.target.value as JobRole | "")}
+                    style={{ border: "1px solid #e5e7eb", borderRadius: 8, padding: "7px 10px", fontSize: 13 }}
+                  >
+                    <option value="">Sin especificar</option>
+                    <option value="manager">Manager</option>
+                    <option value="camarero">Camarero</option>
+                    <option value="cajero">Cajero</option>
+                    <option value="cocina">Cocina</option>
+                    <option value="repartidor">Repartidor</option>
+                  </select>
+                </label>
+              </div>
+              <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 13 }}>
+                <span style={{ fontWeight: 600 }}>Nota para el invitado (opcional)</span>
+                <input
+                  value={inviteNote}
+                  onChange={(e) => setInviteNote(e.target.value)}
+                  placeholder="ej. Bienvenido al equipo"
+                  style={{ border: "1px solid #e5e7eb", borderRadius: 8, padding: "7px 10px", fontSize: 13 }}
+                />
+              </label>
+              <button
+                type="button"
+                disabled={creatingInvite}
+                onClick={() => void handleCreateInvite()}
+                style={{
+                  padding: "9px 0",
+                  borderRadius: 8,
+                  border: "none",
+                  background: "var(--brand-primary, #4ec580)",
+                  color: "#fff",
+                  cursor: "pointer",
+                  fontSize: 14,
+                  fontWeight: 700,
+                  opacity: creatingInvite ? 0.7 : 1,
+                }}
+              >
+                {creatingInvite ? "Generando..." : "Generar enlace de invitación"}
+              </button>
+            </div>
+          )}
+
+          {/* Pending invitations list */}
+          {invitations.length === 0 ? (
+            <p style={{ fontSize: 13, color: "#9ca3af", margin: 0 }}>No hay invitaciones activas.</p>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {invitations.map((inv) => {
+                const arColors = ACCESS_ROLE_COLORS[inv.access_role] ?? ACCESS_ROLE_COLORS.staff;
+                const jrColors = inv.job_role ? JOB_ROLE_COLORS[inv.job_role] : null;
+                const expiresIn = Math.max(
+                  0,
+                  Math.round((new Date(inv.expires_at).getTime() - Date.now()) / 3600_000)
+                );
+                return (
+                  <div
+                    key={inv.id}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 10,
+                      padding: "10px 12px",
+                      borderRadius: 10,
+                      border: "1px solid #f0f0f0",
+                      background: "#fff",
+                    }}
+                  >
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 4 }}>
+                        <Badge
+                          label={ACCESS_ROLE_LABELS[inv.access_role] ?? inv.access_role}
+                          bg={arColors.bg}
+                          color={arColors.color}
+                        />
+                        {jrColors && inv.job_role && (
+                          <Badge
+                            label={JOB_ROLE_LABELS[inv.job_role]}
+                            bg={jrColors.bg}
+                            color={jrColors.color}
+                          />
+                        )}
+                      </div>
+                      {inv.note && (
+                        <div style={{ fontSize: 12, color: "#6b7280", fontStyle: "italic" }}>
+                          "{inv.note}"
+                        </div>
+                      )}
+                      <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 2 }}>
+                        Caduca en {expiresIn} h
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                      <button
+                        type="button"
+                        onClick={() => copyInviteLink(inv.token)}
+                        style={{
+                          padding: "5px 12px",
+                          borderRadius: 7,
+                          border: "1px solid #e5e7eb",
+                          background: copiedToken === inv.token ? "#dcfce7" : "#fff",
+                          color: copiedToken === inv.token ? "#166534" : "#374151",
+                          cursor: "pointer",
+                          fontSize: 12,
+                          fontWeight: 600,
+                        }}
+                      >
+                        {copiedToken === inv.token ? "Copiado ✓" : "Copiar enlace"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void handleRevokeInvite(inv.id)}
+                        style={{
+                          padding: "5px 10px",
+                          borderRadius: 7,
+                          border: "1px solid #fecaca",
+                          background: "#fff",
+                          color: "#dc2626",
+                          cursor: "pointer",
+                          fontSize: 12,
+                        }}
+                      >
+                        Revocar
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>

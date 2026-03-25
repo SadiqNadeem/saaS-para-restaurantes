@@ -9,6 +9,19 @@ import type { TicketData } from "../../lib/printing/ticketService";
 import { useRestaurant } from "../../restaurant/RestaurantContext";
 import { AdminEmptyState } from "../components/AdminEmptyState";
 import { CardSkeleton } from "../components/AdminSkeleton";
+import { useAnimatedValue } from "../../hooks/useAnimatedValue";
+import {
+  DndContext,
+  DragOverlay,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  useDroppable,
+  useDraggable,
+  type DragEndEvent,
+  type DragStartEvent,
+} from "@dnd-kit/core";
+import type { ReactNode } from "react";
 
 // ������ Types ����������������������������������������������������������������������������������������������������������������������������������������
 
@@ -442,9 +455,55 @@ const PANEL_ACTION_LABELS: Record<string, string> = {
   delivered: "Marcar entregado",
 };
 
+const DELAY_MINUTES = 15;
+const VIEW_MODE_KEY = "admin_orders_view_mode";
+type ViewMode = "list" | "kanban";
+
 // ������ Component ��������������������������������������������������������������������������������������������������������������������������������
 
 // ������ CSV Export ������������������������������������������������������������������������������������������������������������������������������
+
+// ─── Kanban DnD helpers ────────────────────────────────────────────────────
+
+function isDelayed(order: AdminOrderRow): boolean {
+  const s = normalizeStatus(order.status);
+  if (s !== "pending" && s !== "accepted" && s !== "preparing") return false;
+  if (!order.created_at) return false;
+  return (Date.now() - new Date(order.created_at).getTime()) / 60000 >= DELAY_MINUTES;
+}
+
+function DroppableColumn({ id, children }: { id: string; children: ReactNode }) {
+  const { setNodeRef, isOver } = useDroppable({ id });
+  return (
+    <div
+      ref={setNodeRef}
+      style={{
+        minHeight: 80,
+        borderRadius: 10,
+        background: isOver ? "rgba(78,197,128,0.10)" : "transparent",
+        transition: "background 150ms",
+        display: "grid",
+        gap: 10,
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
+function DraggableOrderCard({ orderId, children }: { orderId: string; children: ReactNode }) {
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: orderId });
+  return (
+    <div
+      ref={setNodeRef}
+      {...attributes}
+      {...listeners}
+      style={{ opacity: isDragging ? 0.3 : 1, touchAction: "none", cursor: isDragging ? "grabbing" : "grab" }}
+    >
+      {children}
+    </div>
+  );
+}
 
 function escapeCsvCell(value: string): string {
   if (value.includes(",") || value.includes('"') || value.includes("\n")) {
@@ -490,6 +549,13 @@ function exportOrdersToCsv(
 export default function AdminOrdersPage() {
   const { restaurantId, name: restaurantName } = useRestaurant();
   const { settings: printSettings, printOrder } = usePrintSettings(restaurantId);
+  // Ref so realtime handlers always see the latest settings without re-subscribing
+  const printSettingsRef = useRef(printSettings);
+  useEffect(() => { printSettingsRef.current = printSettings; }, [printSettings]);
+  const printOrderRef = useRef(printOrder);
+  useEffect(() => { printOrderRef.current = printOrder; }, [printOrder]);
+  const restaurantNameRef = useRef(restaurantName);
+  useEffect(() => { restaurantNameRef.current = restaurantName; }, [restaurantName]);
 
   const [orders, setOrders] = useState<AdminOrderRow[]>([]);
   const [loading, setLoading] = useState(false);
@@ -512,6 +578,14 @@ export default function AdminOrdersPage() {
   const ringIntervalRef = useRef<number | null>(null);
   const [isMuted, setIsMuted] = useState(false);
   const [isRinging, setIsRinging] = useState(false);
+  const [viewMode, setViewMode] = useState<ViewMode>(() => {
+    const saved = localStorage.getItem(VIEW_MODE_KEY);
+    return saved === 'list' || saved === 'kanban' ? saved : 'kanban';
+  });
+  const [activeDragId, setActiveDragId] = useState<string | null>(null);
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
+  );
 
   const pushToast = useCallback((message: string) => {
     toastSeqRef.current += 1;
@@ -562,7 +636,7 @@ export default function AdminOrdersPage() {
 
   // ���� Data loading ��������������������������������������������������������������������������������������������������������������������
 
-  const loadOrders = useCallback(async () => {
+  const loadOrders = useCallback(async (): Promise<AdminOrderRow[]> => {
     setLoading(true);
     setError(null);
 
@@ -590,14 +664,20 @@ export default function AdminOrdersPage() {
       if (fErr) {
         setError(fErr.message || "No se pudieron cargar los pedidos");
         setOrders([]);
+        setLoading(false);
+        return [];
       } else {
-        setOrders(Array.isArray(fallback) ? (fallback as AdminOrderRow[]) : []);
+        const rows = Array.isArray(fallback) ? (fallback as AdminOrderRow[]) : [];
+        setOrders(rows);
+        setLoading(false);
+        return rows;
       }
     } else {
-      setOrders(Array.isArray(data) ? (data as AdminOrderRow[]) : []);
+      const rows = Array.isArray(data) ? (data as AdminOrderRow[]) : [];
+      setOrders(rows);
+      setLoading(false);
+      return rows;
     }
-
-    setLoading(false);
   }, [restaurantId]);
 
   useEffect(() => {
@@ -617,10 +697,43 @@ export default function AdminOrdersPage() {
           table: "orders",
           filter: `restaurant_id=eq.${restaurantId}`,
         },
-        () => {
+        (payload) => {
           pushToast("Nuevo pedido recibido.");
-          void loadOrders();
           startRinging();
+          void (async () => {
+            const loaded = await loadOrders();
+            const ps = printSettingsRef.current;
+            if (ps.printOnNewOrder && loaded.length > 0) {
+              const newOrderId = (payload.new as { id?: string }).id;
+              const newOrder = loaded.find((o) => o.id === newOrderId);
+              if (newOrder) {
+                const items = parseOrderItems(newOrder);
+                const rName = restaurantNameRef.current ?? "";
+                void printOrderRef.current(
+                  orderToTicketData(newOrder, items, rName),
+                  "customer"
+                );
+                if (ps.printKitchenSeparate) {
+                  void printOrderRef.current(
+                    orderToTicketData(newOrder, items, rName),
+                    "kitchen"
+                  );
+                }
+              }
+            }
+          })();
+        }
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "orders",
+          filter: `restaurant_id=eq.${restaurantId}`,
+        },
+        () => {
+          void loadOrders();
         }
       )
       .subscribe((status) => {
@@ -721,13 +834,15 @@ export default function AdminOrdersPage() {
     }));
   }, [filteredOrders]);
 
-  const selectedOrder = useMemo(
+  const selectedOrderCurrent = useMemo(
     () =>
       enrichedOrders.find(
         ({ order }) => toOrderId(order.id) === toOrderId(selectedOrderId)
       ) ?? null,
     [enrichedOrders, selectedOrderId]
   );
+  const animatedSelectedOrder = useAnimatedValue(selectedOrderCurrent, 220);
+  const selectedOrder = animatedSelectedOrder.displayValue ?? selectedOrderCurrent;
 
   useEffect(() => {
     setActionError(null);
@@ -745,15 +860,54 @@ export default function AdminOrdersPage() {
 
   // Lock body scroll while panel is open
   useEffect(() => {
-    if (!selectedOrder) return;
+    if (!animatedSelectedOrder.mounted || !animatedSelectedOrder.displayValue) return;
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => {
       document.body.style.overflow = prev;
     };
-  }, [selectedOrder]);
+  }, [animatedSelectedOrder.displayValue, animatedSelectedOrder.mounted]);
 
   // ���� Actions ������������������������������������������������������������������������������������������������������������������������������
+
+  const toggleViewMode = () => {
+    setViewMode((prev) => {
+      const next = prev === 'list' ? 'kanban' : 'list';
+      localStorage.setItem(VIEW_MODE_KEY, next);
+      return next;
+    });
+  };
+
+  const handleDragStart = (event: DragStartEvent) => {
+    setActiveDragId(String(event.active.id));
+  };
+
+  const handleDragEnd = async (event: DragEndEvent) => {
+    setActiveDragId(null);
+    const { active, over } = event;
+    if (!over) return;
+    const orderId = String(active.id);
+    const targetColumnId = String(over.id);
+    const targetColumn = KANBAN_COLUMNS.find((c) => c.id === targetColumnId);
+    if (!targetColumn) return;
+    const targetStatus = targetColumn.statuses[0];
+    const prev = orders.find((r) => r.id === orderId);
+    if (!prev || normalizeStatus(prev.status) === targetStatus) return;
+    setOrders((list) =>
+      list.map((r) => (r.id === orderId ? ({ ...r, status: targetStatus } as AdminOrderRow) : r))
+    );
+    const { error: rpcErr } = await supabase.rpc("set_order_status_safe", {
+      p_order_id: orderId,
+      p_status: targetStatus,
+    });
+    if (rpcErr) {
+      setOrders((list) => list.map((r) => (r.id === orderId ? prev : r)));
+      pushToast(`Error: ${rpcErr.message || "No se pudo actualizar"}`);
+    } else {
+      pushToast(`Estado: ${statusLabel(targetStatus)}`);
+      void loadOrders();
+    }
+  };
 
   // Quick single-step action from card buttons
   const quickUpdateStatus = useCallback(
@@ -781,10 +935,11 @@ export default function AdminOrdersPage() {
         if (newStatus === "accepted" && printSettings.printOnAccept) {
           const orderItems =
             enrichedOrders.find((e) => e.order.id === orderId)?.items ?? [];
-          void printOrder(
-            orderToTicketData(prev, orderItems, restaurantName ?? ""),
-            "customer"
-          );
+          const ticketData = orderToTicketData(prev, orderItems, restaurantName ?? "");
+          void printOrder(ticketData, "customer");
+          if (printSettings.printKitchenSeparate) {
+            void printOrder(ticketData, "kitchen");
+          }
         }
         void loadOrders();
       }
@@ -990,6 +1145,13 @@ export default function AdminOrdersPage() {
           transform: translateY(-1px);
           box-shadow: 0 10px 18px rgba(15, 23, 42, 0.2);
         }
+        @keyframes aop-delayed-pulse {
+          0%, 100% { box-shadow: 0 0 0 2px rgba(239,68,68,0.8), 0 3px 10px rgba(15,23,42,0.06); }
+          50%  { box-shadow: 0 0 0 3px rgba(239,68,68,0.2), 0 3px 10px rgba(15,23,42,0.06); }
+        }
+        .aop-delayed-card {
+          animation: aop-delayed-pulse 1.5s ease-in-out infinite !important;
+        }
       `}</style>
 
       {/* ���� Header ���� */}
@@ -1082,6 +1244,24 @@ export default function AdminOrdersPage() {
             }}
           >
             Exportar CSV
+          </button>
+
+          <button
+            type="button"
+            onClick={toggleViewMode}
+            style={{
+              borderRadius: 11,
+              border: viewMode === "kanban" ? "1px solid #0f172a" : "1px solid #d1d5db",
+              background: viewMode === "kanban" ? "#0f172a" : "#fff",
+              color: viewMode === "kanban" ? "#fff" : "#000",
+              padding: "9px 13px",
+              cursor: "pointer",
+              fontSize: 13,
+              fontWeight: 700,
+              boxShadow: viewMode === "kanban" ? "0 6px 16px rgba(15,23,42,0.18)" : "none",
+            }}
+          >
+            {viewMode === "kanban" ? "Vista lista" : "Vista kanban"}
           </button>
 
           <button
@@ -1307,350 +1487,183 @@ export default function AdminOrdersPage() {
       ) : null}
 
       {filteredOrders.length > 0 ? (
-        <div
-          style={{
-            border: "1px solid #dbe4ee",
-            borderRadius: 16,
-            padding: 12,
-            background: "#f8fafc",
-            overflowX: "auto",
-          }}
-        >
-          <div
-            style={{
-              display: "grid",
-              gridAutoFlow: "column",
-              gridAutoColumns: "minmax(320px, 1fr)",
-              gap: 12,
-              alignItems: "start",
-              minWidth: "fit-content",
-            }}
-          >
-            {kanbanColumns.map((column) => (
-              <section
-                key={column.id}
-                style={{
-                  display: "grid",
-                  gap: 10,
-                  minHeight: 220,
-                  border: "1px solid #d7e1ea",
-                  borderRadius: 14,
-                  background: "#eef4f8",
-                  padding: 10,
-                }}
-              >
-                <header
+        viewMode === "list" ? (
+          <div style={{ display: "grid", gap: 10 }}>
+            {filteredOrders.map(({ order, summary }, index) => {
+              const orderId = toOrderId(order.id);
+              const status = normalizeStatus(order.status);
+              const nextAction = getNextAction(order.status);
+              const isCardBusy = cardUpdating === orderId;
+              const delayed = isDelayed(order);
+              const typeStyle = orderTypeStyle(order.order_type);
+              return (
+                <article
+                  key={`list-${orderId || "order"}-${index}`}
+                  onClick={() => setSelectedOrderId(orderId)}
+                  className={delayed ? "aop-delayed-card" : undefined}
                   style={{
+                    border: delayed ? "1.5px solid #ef4444" : status === "pending" ? "1.5px solid #fdba74" : "1px solid #dbe4ee",
+                    borderRadius: 14,
+                    background: "#fff",
+                    padding: 12,
                     display: "flex",
-                    justifyContent: "space-between",
+                    gap: 12,
                     alignItems: "center",
-                    gap: 8,
-                    padding: "2px 2px 6px",
+                    flexWrap: "wrap",
+                    boxShadow: status === "pending" ? "0 8px 18px rgba(251,146,60,0.16)" : "0 3px 10px rgba(15,23,42,0.06)",
+                    animation: status === "pending" && !delayed ? "aop-new-glow 2.2s ease-in-out infinite" : "none",
+                    cursor: "pointer",
                   }}
                 >
-                  <strong style={{ fontSize: 13, color: "#1e293b" }}>{column.label}</strong>
-                  <span
-                    style={{
-                      borderRadius: 999,
-                      border: "1px solid #c4d2e1",
-                      background: "#fff",
-                      color: "#334155",
-                      fontSize: 12,
-                      fontWeight: 700,
-                      padding: "3px 8px",
-                    }}
-                  >
-                    {column.orders.length}
-                  </span>
-                </header>
-
-                {column.orders.length === 0 ? (
-                  <div
-                    style={{
-                      borderRadius: 10,
-                      border: "1px dashed #c7d4e0",
-                      color: "#64748b",
-                      fontSize: 13,
-                      padding: "12px 10px",
-                      background: "#f8fbfd",
-                    }}
-                  >
-                    Sin pedidos
+                  <div style={{ flex: 1, minWidth: 0, display: "grid", gap: 4 }}>
+                    <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                      <span style={{ fontSize: 16, fontWeight: 800, color: "#0f172a" }}>#{shortOrderId(orderId)}</span>
+                      <span style={{ fontSize: 12, color: "#64748b" }}>
+                        {formatHour(order.created_at)} | <OrderElapsedTimer since={order.created_at} status={order.status} />
+                      </span>
+                      {delayed && (
+                        <span style={{ fontSize: 11, fontWeight: 700, color: "#dc2626", background: "#fef2f2", border: "1px solid #fca5a5", borderRadius: 999, padding: "2px 7px" }}>⚠ Demorado</span>
+                      )}
+                    </div>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: "#0f172a" }}>{asString(order.customer_name) || "Sin nombre"}</div>
+                    <div style={{ fontSize: 13, color: "#64748b" }}>{summary}</div>
                   </div>
-                ) : (
-                  column.orders.map(({ order, summary }, index) => {
-                    const status = normalizeStatus(order.status);
-                    const nextAction = getNextAction(order.status);
-                    const orderId = toOrderId(order.id);
-                    const isCardBusy = cardUpdating === orderId;
-                    const phone = asString((order as Record<string, unknown>).customer_phone);
-                    const paymentMethod = paymentMethodLabel((order as Record<string, unknown>).payment_method);
-                    const typeStyle = orderTypeStyle(order.order_type);
-
-                    return (
-                      <article
-                        key={`${orderId || "order"}-${asString(order.created_at) || "na"}-${index}`}
-                        onClick={() => setSelectedOrderId(orderId)}
-                        style={{
-                          border: status === "pending" ? "1.5px solid #fdba74" : "1px solid #dbe4ee",
-                          borderRadius: 14,
-                          background: "#fff",
-                          padding: 12,
-                          display: "grid",
-                          gap: 10,
-                          boxShadow: status === "pending"
-                            ? "0 8px 18px rgba(251, 146, 60, 0.16)"
-                            : "0 3px 10px rgba(15, 23, 42, 0.06)",
-                          animation: status === "pending" ? "aop-new-glow 2.2s ease-in-out infinite" : "none",
-                          cursor: "pointer",
-                        }}
+                  <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                    <span style={statusStyle(order.status)}>{statusLabel(order.status)}</span>
+                    <span style={{ display: "inline-flex", alignItems: "center", borderRadius: 999, border: `1px solid ${typeStyle.border}`, background: typeStyle.background, color: typeStyle.color, padding: "3px 9px", fontSize: 11, fontWeight: 700 }}>
+                      {orderTypeLabel(order.order_type)}
+                    </span>
+                    <strong style={{ fontSize: 20, fontWeight: 800, color: "#0f172a" }}>{formatMoney(asNumber(order.total))}</strong>
+                    {nextAction ? (
+                      <button
+                        className="aop-order-primary"
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); void quickUpdateStatus(orderId, nextAction.value); }}
+                        disabled={isCardBusy}
+                        style={{ background: "#0f172a", color: "#fff", border: "none", borderRadius: 10, padding: "8px 12px", fontSize: 13, fontWeight: 700, cursor: isCardBusy ? "not-allowed" : "pointer", opacity: isCardBusy ? 0.7 : 1, minHeight: 36 }}
                       >
-                        <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
-                          <div style={{ display: "grid", gap: 2 }}>
-                            <div style={{ fontSize: 16, fontWeight: 800, color: "#0f172a" }}>
-                              #{shortOrderId(orderId)}
-                            </div>
-                            <div style={{ fontSize: 12, color: "#64748b" }}>
-                              {formatHour(order.created_at)} | <OrderElapsedTimer since={order.created_at} status={order.status} />
-                            </div>
-                          </div>
-                          <span style={statusStyle(order.status)}>{statusLabel(order.status)}</span>
-                        </div>
-
-                        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                          <span
-                            style={{
-                              display: "inline-flex",
-                              alignItems: "center",
-                              borderRadius: 999,
-                              border: `1px solid ${typeStyle.border}`,
-                              background: typeStyle.background,
-                              color: typeStyle.color,
-                              padding: "3px 9px",
-                              fontSize: 11,
-                              fontWeight: 700,
-                              textTransform: "uppercase",
-                              letterSpacing: 0.3,
-                            }}
-                          >
-                            {orderTypeLabel(order.order_type)}
-                          </span>
-                          <span
-                            style={{
-                              display: "inline-flex",
-                              alignItems: "center",
-                              borderRadius: 999,
-                              border: "1px solid #cbd5e1",
-                              background: "#f8fafc",
-                              color: "#334155",
-                              padding: "3px 9px",
-                              fontSize: 11,
-                              fontWeight: 700,
-                            }}
-                          >
-                            {paymentMethod}
-                          </span>
-                          {order.source === "qr_table" && (
-                            <span style={{ display: "inline-flex", alignItems: "center", borderRadius: 999, border: "1px solid rgba(96,165,250,0.4)", background: "rgba(96,165,250,0.1)", color: "#2563eb", padding: "3px 9px", fontSize: 11, fontWeight: 700 }}>
-                              Mesa QR
-                            </span>
-                          )}
-                        </div>
-
-                        <div style={{ display: "grid", gap: 3 }}>
-                          <div style={{ fontSize: 15, fontWeight: 700, color: "#0f172a" }}>
-                            {asString(order.customer_name) || "Sin nombre"}
-                          </div>
-                          <div style={{ fontSize: 13, color: "#64748b" }}>
-                            {phone || "Telefono no disponible"}
-                          </div>
-                        </div>
-
-                        <div
-                          style={{
-                            fontSize: 13,
-                            color: "#475569",
-                            lineHeight: 1.4,
-                            borderRadius: 10,
-                            padding: "8px 10px",
-                            background: "#f8fafc",
-                            border: "1px solid #e2e8f0",
-                          }}
-                        >
-                          {summary}
-                        </div>
-
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-                          <strong style={{ fontSize: 24, fontWeight: 800, color: "#0f172a", letterSpacing: -0.4 }}>
-                            {formatMoney(asNumber(order.total))}
-                          </strong>
-                          {nextAction ? (
-                            <button
-                              className="aop-order-primary"
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                void quickUpdateStatus(orderId, nextAction.value);
-                              }}
-                              disabled={isCardBusy}
-                              style={{
-                                background: "#0f172a",
-                                color: "#fff",
-                                border: "none",
-                                borderRadius: 10,
-                                padding: "10px 13px",
-                                fontSize: 13,
-                                fontWeight: 700,
-                                cursor: isCardBusy ? "not-allowed" : "pointer",
-                                opacity: isCardBusy ? 0.7 : 1,
-                                transition: "all 140ms ease",
-                                minHeight: 38,
-                              }}
-                            >
-                              {isCardBusy ? "..." : nextAction.label}
-                            </button>
-                          ) : null}
-                        </div>
-
-                        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 8 }}>
-                          <button
-                            className="aop-order-action"
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setSelectedOrderId(orderId);
-                            }}
-                            style={{
-                              background: "#ffffff",
-                              color: "#334155",
-                              border: "1px solid #dbe2ea",
-                              borderRadius: 10,
-                              padding: "9px 8px",
-                              fontSize: 12,
-                              fontWeight: 700,
-                              cursor: "pointer",
-                              minHeight: 36,
-                            }}
-                          >
-                            Ver
-                          </button>
-                          <button
-                            className="aop-order-action"
-                            type="button"
-                            title="Imprimir ticket cliente"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              const enriched = enrichedOrders.find((en) => en.order.id === orderId);
-                              void printOrder(
-                                orderToTicketData(order, enriched?.items ?? [], restaurantName ?? ""),
-                                "customer"
-                              );
-                            }}
-                            style={{
-                              background: "#ffffff",
-                              color: "#475569",
-                              border: "1px solid #dbe2ea",
-                              borderRadius: 10,
-                              padding: "9px 8px",
-                              fontSize: 12,
-                              fontWeight: 700,
-                              cursor: "pointer",
-                              minHeight: 36,
-                            }}
-                          >
-                            Ticket
-                          </button>
-                          <button
-                            className="aop-order-action"
-                            type="button"
-                            title="Imprimir comanda cocina"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              const enriched = enrichedOrders.find((en) => en.order.id === orderId);
-                              void printOrder(
-                                orderToTicketData(order, enriched?.items ?? [], restaurantName ?? ""),
-                                "kitchen"
-                              );
-                            }}
-                            style={{
-                              background: "#ffffff",
-                              color: "#475569",
-                              border: "1px solid #dbe2ea",
-                              borderRadius: 10,
-                              padding: "9px 8px",
-                              fontSize: 12,
-                              fontWeight: 700,
-                              cursor: "pointer",
-                              minHeight: 36,
-                            }}
-                          >
-                            Cocina
-                          </button>
-                        </div>
-
-                        {/* WhatsApp — contact customer (only if phone available) */}
-                        {phone ? (
-                          <button
-                            type="button"
-                            title="Contactar cliente por WhatsApp"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              const enriched = enrichedOrders.find((en) => en.order.id === orderId);
-                              const waItems =
-                                enriched?.items.map((i) => ({ name: i.name, quantity: i.qty })) ?? [];
-                              const msg = buildAdminNotificationMessage(
-                                {
-                                  id: orderId,
-                                  customer_name: asString(order.customer_name),
-                                  customer_phone: phone,
-                                  total: asNumber(order.total),
-                                  order_type: asString(order.order_type),
-                                  items: waItems,
-                                },
-                                restaurantName ?? ""
-                              );
-                              window.open(
-                                buildWhatsAppLink(phone, msg),
-                                "_blank",
-                                "noopener,noreferrer"
-                              );
-                            }}
-                            style={{
-                              display: "flex",
-                              alignItems: "center",
-                              justifyContent: "center",
-                              gap: 6,
-                              width: "100%",
-                              background: "#f0fdf4",
-                              color: "#166534",
-                              border: "1px solid #86efac",
-                              borderRadius: 10,
-                              padding: "7px 8px",
-                              fontSize: 12,
-                              fontWeight: 700,
-                              cursor: "pointer",
-                              minHeight: 34,
-                              transition: "all 140ms ease",
-                            }}
-                          >
-                            <svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor">
-                              <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z"/>
-                            </svg>
-                            WhatsApp cliente
-                          </button>
-                        ) : null}
-                      </article>
-                    );
-                  })
-                )}
-              </section>
-            ))}
+                        {isCardBusy ? "..." : nextAction.label}
+                      </button>
+                    ) : null}
+                    <button className="aop-order-action" type="button" onClick={(e) => { e.stopPropagation(); setSelectedOrderId(orderId); }} style={{ background: "#fff", color: "#334155", border: "1px solid #dbe2ea", borderRadius: 10, padding: "8px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer", minHeight: 36 }}>Ver detalle</button>
+                  </div>
+                </article>
+              );
+            })}
           </div>
-        </div>
+        ) : (
+          <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={(e) => { void handleDragEnd(e); }}>
+            <div style={{ border: "1px solid #dbe4ee", borderRadius: 16, padding: 12, background: "#f8fafc", overflowX: "auto" }}>
+              <div style={{ display: "grid", gridAutoFlow: "column", gridAutoColumns: "minmax(320px, 1fr)", gap: 12, alignItems: "start", minWidth: "fit-content" }}>
+                {kanbanColumns.map((column) => (
+                  <section key={column.id} style={{ display: "grid", gap: 10, minHeight: 220, border: "1px solid #d7e1ea", borderRadius: 14, background: "#eef4f8", padding: 10 }}>
+                    <header style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, padding: "2px 2px 6px" }}>
+                      <strong style={{ fontSize: 13, color: "#1e293b" }}>{column.label}</strong>
+                      <span style={{ borderRadius: 999, border: "1px solid #c4d2e1", background: "#fff", color: "#334155", fontSize: 12, fontWeight: 700, padding: "3px 8px" }}>
+                        {column.orders.length}
+                      </span>
+                    </header>
+                    <DroppableColumn id={column.id}>
+                      {column.orders.length === 0 ? (
+                        <div style={{ borderRadius: 10, border: "1px dashed #c7d4e0", color: "#64748b", fontSize: 13, padding: "12px 10px", background: "#f8fbfd" }}>Sin pedidos</div>
+                      ) : (
+                        column.orders.map(({ order, summary }, index) => {
+                          const status = normalizeStatus(order.status);
+                          const nextAction = getNextAction(order.status);
+                          const orderId = toOrderId(order.id);
+                          const isCardBusy = cardUpdating === orderId;
+                          const phone = asString((order as Record<string, unknown>).customer_phone);
+                          const paymentMethod = paymentMethodLabel((order as Record<string, unknown>).payment_method);
+                          const typeStyle = orderTypeStyle(order.order_type);
+                          const delayed = isDelayed(order);
+                          return (
+                            <DraggableOrderCard key={`${orderId || "order"}-${asString(order.created_at) || "na"}-${index}`} orderId={orderId}>
+                              <article
+                                onClick={() => setSelectedOrderId(orderId)}
+                                className={delayed ? "aop-delayed-card" : undefined}
+                                style={{
+                                  border: delayed ? "1.5px solid #ef4444" : status === "pending" ? "1.5px solid #fdba74" : "1px solid #dbe4ee",
+                                  borderRadius: 14,
+                                  background: "#fff",
+                                  padding: 12,
+                                  display: "grid",
+                                  gap: 10,
+                                  boxShadow: status === "pending" ? "0 8px 18px rgba(251, 146, 60, 0.16)" : "0 3px 10px rgba(15, 23, 42, 0.06)",
+                                  animation: status === "pending" && !delayed ? "aop-new-glow 2.2s ease-in-out infinite" : "none",
+                                  cursor: "pointer",
+                                }}
+                              >
+                                {delayed && (
+                                  <div style={{ background: "#fef2f2", color: "#991b1b", border: "1px solid #fca5a5", borderRadius: 8, padding: "4px 8px", fontSize: 12, fontWeight: 700 }}>⚠ Demorado (+{DELAY_MINUTES} min)</div>
+                                )}
+                                <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+                                  <div style={{ display: "grid", gap: 2 }}>
+                                    <div style={{ fontSize: 16, fontWeight: 800, color: "#0f172a" }}>#{shortOrderId(orderId)}</div>
+                                    <div style={{ fontSize: 12, color: "#64748b" }}>{formatHour(order.created_at)} | <OrderElapsedTimer since={order.created_at} status={order.status} /></div>
+                                  </div>
+                                  <span style={statusStyle(order.status)}>{statusLabel(order.status)}</span>
+                                </div>
+                                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                                  <span style={{ display: "inline-flex", alignItems: "center", borderRadius: 999, border: `1px solid ${typeStyle.border}`, background: typeStyle.background, color: typeStyle.color, padding: "3px 9px", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.3 }}>{orderTypeLabel(order.order_type)}</span>
+                                  <span style={{ display: "inline-flex", alignItems: "center", borderRadius: 999, border: "1px solid #cbd5e1", background: "#f8fafc", color: "#334155", padding: "3px 9px", fontSize: 11, fontWeight: 700 }}>{paymentMethod}</span>
+                                  {order.source === "qr_table" && (<span style={{ display: "inline-flex", alignItems: "center", borderRadius: 999, border: "1px solid rgba(96,165,250,0.4)", background: "rgba(96,165,250,0.1)", color: "#2563eb", padding: "3px 9px", fontSize: 11, fontWeight: 700 }}>Mesa QR</span>)}
+                                </div>
+                                <div style={{ display: "grid", gap: 3 }}>
+                                  <div style={{ fontSize: 15, fontWeight: 700, color: "#0f172a" }}>{asString(order.customer_name) || "Sin nombre"}</div>
+                                  <div style={{ fontSize: 13, color: "#64748b" }}>{phone || "Telefono no disponible"}</div>
+                                </div>
+                                <div style={{ fontSize: 13, color: "#475569", lineHeight: 1.4, borderRadius: 10, padding: "8px 10px", background: "#f8fafc", border: "1px solid #e2e8f0" }}>{summary}</div>
+                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                                  <strong style={{ fontSize: 24, fontWeight: 800, color: "#0f172a", letterSpacing: -0.4 }}>{formatMoney(asNumber(order.total))}</strong>
+                                  {nextAction ? (
+                                    <button className="aop-order-primary" type="button" onClick={(e) => { e.stopPropagation(); void quickUpdateStatus(orderId, nextAction.value); }} disabled={isCardBusy} style={{ background: "#0f172a", color: "#fff", border: "none", borderRadius: 10, padding: "10px 13px", fontSize: 13, fontWeight: 700, cursor: isCardBusy ? "not-allowed" : "pointer", opacity: isCardBusy ? 0.7 : 1, transition: "all 140ms ease", minHeight: 38 }}>
+                                      {isCardBusy ? "..." : nextAction.label}
+                                    </button>
+                                  ) : null}
+                                </div>
+                                <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 8 }}>
+                                  <button className="aop-order-action" type="button" onClick={(e) => { e.stopPropagation(); setSelectedOrderId(orderId); }} style={{ background: "#ffffff", color: "#334155", border: "1px solid #dbe2ea", borderRadius: 10, padding: "9px 8px", fontSize: 12, fontWeight: 700, cursor: "pointer", minHeight: 36 }}>Ver</button>
+                                  <button className="aop-order-action" type="button" title="Imprimir ticket cliente" onClick={(e) => { e.stopPropagation(); const enriched = enrichedOrders.find((en) => en.order.id === orderId); void printOrder(orderToTicketData(order, enriched?.items ?? [], restaurantName ?? ""), "customer"); }} style={{ background: "#ffffff", color: "#475569", border: "1px solid #dbe2ea", borderRadius: 10, padding: "9px 8px", fontSize: 12, fontWeight: 700, cursor: "pointer", minHeight: 36 }}>Ticket</button>
+                                  <button className="aop-order-action" type="button" title="Imprimir comanda cocina" onClick={(e) => { e.stopPropagation(); const enriched = enrichedOrders.find((en) => en.order.id === orderId); void printOrder(orderToTicketData(order, enriched?.items ?? [], restaurantName ?? ""), "kitchen"); }} style={{ background: "#ffffff", color: "#475569", border: "1px solid #dbe2ea", borderRadius: 10, padding: "9px 8px", fontSize: 12, fontWeight: 700, cursor: "pointer", minHeight: 36 }}>Cocina</button>
+                                </div>
+                                {phone ? (
+                                  <button type="button" title="Contactar cliente por WhatsApp" onClick={(e) => { e.stopPropagation(); const enriched = enrichedOrders.find((en) => en.order.id === orderId); const waItems = enriched?.items.map((i) => ({ name: i.name, quantity: i.qty })) ?? []; const msg = buildAdminNotificationMessage({ id: orderId, customer_name: asString(order.customer_name), customer_phone: phone, total: asNumber(order.total), order_type: asString(order.order_type), items: waItems }, restaurantName ?? ""); window.open(buildWhatsAppLink(phone, msg), "_blank", "noopener,noreferrer"); }} style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, width: "100%", background: "#f0fdf4", color: "#166534", border: "1px solid #86efac", borderRadius: 10, padding: "7px 8px", fontSize: 12, fontWeight: 700, cursor: "pointer", minHeight: 34, transition: "all 140ms ease" }}>
+                                    <svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z"/></svg>
+                                    WhatsApp cliente
+                                  </button>
+                                ) : null}
+                              </article>
+                            </DraggableOrderCard>
+                          );
+                        })
+                      )}
+                    </DroppableColumn>
+                  </section>
+                ))}
+              </div>
+            </div>
+            <DragOverlay dropAnimation={null}>
+              {activeDragId ? (() => {
+                const dragOrder = enrichedOrders.find((e) => e.order.id === activeDragId);
+                if (!dragOrder) return null;
+                return (
+                  <div style={{ borderRadius: 14, background: "#fff", padding: 12, border: "1.5px solid #0f172a", boxShadow: "0 12px 28px rgba(15,23,42,0.2)", opacity: 0.96, display: "grid", gap: 6, width: 300 }}>
+                    <div style={{ fontSize: 15, fontWeight: 800 }}>#{shortOrderId(dragOrder.order.id)}</div>
+                    <div style={{ fontSize: 13, color: "#64748b" }}>{asString(dragOrder.order.customer_name) || "Sin nombre"}</div>
+                    <div style={{ fontSize: 13, color: "#475569" }}>{dragOrder.summary}</div>
+                    <strong style={{ fontSize: 20, fontWeight: 800 }}>{formatMoney(asNumber(dragOrder.order.total))}</strong>
+                  </div>
+                );
+              })() : null}
+            </DragOverlay>
+          </DndContext>
+        )
       ) : null}
 
       {selectedOrder ? (
         <div
+          className="ui-overlay"
+          data-state={animatedSelectedOrder.visible ? "open" : "closed"}
           role="presentation"
           onMouseDown={(e) => {
             e.preventDefault();
@@ -1666,6 +1679,8 @@ export default function AdminOrdersPage() {
           }}
         >
           <aside
+            className="ui-drawer-panel"
+            data-state={animatedSelectedOrder.visible ? "open" : "closed"}
             role="dialog"
             aria-modal="true"
             aria-label={`Detalle pedido ${selectedOrder.order.id}`}

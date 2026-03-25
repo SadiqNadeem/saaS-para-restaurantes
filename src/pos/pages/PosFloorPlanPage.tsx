@@ -76,6 +76,13 @@ const WALL_COLORS: Array<{ label: string; value: string }> = [
 
 const WALL_THICKNESSES = [4, 8, 16] as const;
 
+/** Minutes until an occupied table is considered "delayed" (shown in red) */
+const DELAY_THRESHOLD_MIN = 45;
+
+function elapsedMinutes(createdAt: string): number {
+  return Math.floor((Date.now() - new Date(createdAt).getTime()) / 60000);
+}
+
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export default function PosFloorPlanPage() {
@@ -195,9 +202,20 @@ export default function PosFloorPlanPage() {
     const channel = supabase
       .channel("floor-plan-rt-" + restaurantId)
       .on("postgres_changes", { event: "*", schema: "public", table: "restaurant_tables", filter: `restaurant_id=eq.${restaurantId}` }, () => void loadAll())
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "orders", filter: `restaurant_id=eq.${restaurantId}` }, () => void loadAll())
       .subscribe();
     return () => void supabase.removeChannel(channel);
   }, [restaurantId, mode, loadAll]);
+
+  // ── Periodic tick: re-evaluate delayed status every 60 s ──
+  useEffect(() => {
+    if (mode !== "service") return;
+    const id = window.setInterval(() => {
+      // Force a re-render so elapsedMinutes() is recalculated for delay detection
+      setTables((prev) => [...prev]);
+    }, 60_000);
+    return () => window.clearInterval(id);
+  }, [mode]);
 
   // ── Keyboard: Delete/Backspace removes selected wall ──
   useEffect(() => {
@@ -598,6 +616,22 @@ export default function PosFloorPlanPage() {
           ))}
         </div>
 
+        {/* Service mode legend */}
+        {mode === "service" && (
+          <div style={{ display: "flex", gap: 8, alignItems: "center", marginLeft: 4 }}>
+            {[
+              { color: "rgba(74,222,128,0.45)", label: "Libre" },
+              { color: "rgba(251,191,36,0.45)", label: "Ocupada" },
+              { color: "rgba(239,68,68,0.55)", label: `Demorada (+${DELAY_THRESHOLD_MIN}m)` },
+            ].map(({ color, label }) => (
+              <span key={label} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: "#64748b" }}>
+                <span style={{ display: "inline-block", width: 10, height: 10, borderRadius: 2, border: `2px solid ${color}`, background: color.replace("0.45", "0.2").replace("0.55", "0.25") }} />
+                {label}
+              </span>
+            ))}
+          </div>
+        )}
+
         {/* Edit-mode controls */}
         {mode === "edit" && (
           <>
@@ -778,11 +812,26 @@ export default function PosFloorPlanPage() {
             {visibleTables.map((table) => {
               const isFree = table.status === "free";
               const isOccupied = table.status === "occupied";
+              const isDelayed = isOccupied && !!table.order_created_at && elapsedMinutes(table.order_created_at) >= DELAY_THRESHOLD_MIN;
               const isSelected = selectedId === table.id;
               const isOpening = openingId === table.id;
 
-              const bg = isFree ? "#1e293b" : isOccupied ? "rgba(74,222,128,0.15)" : "rgba(251,191,36,0.12)";
-              const borderColor = isSelected ? "#60a5fa" : isFree ? "#334155" : isOccupied ? "rgba(74,222,128,0.5)" : "rgba(251,191,36,0.5)";
+              const bg = isFree
+                ? "rgba(74,222,128,0.12)"
+                : isDelayed
+                  ? "rgba(239,68,68,0.15)"
+                  : isOccupied
+                    ? "rgba(251,191,36,0.12)"
+                    : "rgba(251,191,36,0.15)"; // closing = amber
+              const borderColor = isSelected
+                ? "#60a5fa"
+                : isFree
+                  ? "rgba(74,222,128,0.45)"
+                  : isDelayed
+                    ? "rgba(239,68,68,0.55)"
+                    : isOccupied
+                      ? "rgba(251,191,36,0.45)"
+                      : "rgba(251,191,36,0.5)";
               const borderRadius = table.shape === "circle" ? "50%" : table.shape === "rectangle" ? 10 : 12;
 
               return (
@@ -810,14 +859,14 @@ export default function PosFloorPlanPage() {
                     {table.name}
                   </span>
                   {table.capacity && <span style={{ fontSize: 10, color: "#64748b" }}>{table.capacity} pax</span>}
-                  <span style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: isFree ? "#475569" : isOccupied ? "#4ade80" : "#fbbf24" }}>
-                    {isFree ? "libre" : isOccupied ? "ocupada" : "cobrando"}
+                  <span style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: isFree ? "#4ade80" : isDelayed ? "#f87171" : isOccupied ? "#fbbf24" : "#f59e0b" }}>
+                    {isFree ? "libre" : isDelayed ? "demorada" : isOccupied ? "ocupada" : "cobrando"}
                   </span>
                   {(isOccupied || table.status === "closing") && table.order_total !== undefined && table.order_total > 0 && (
-                    <span style={{ fontSize: 11, fontWeight: 700, color: isOccupied ? "#4ade80" : "#fbbf24" }}>{fmtEur(table.order_total)}</span>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: isDelayed ? "#f87171" : isOccupied ? "#fbbf24" : "#f59e0b" }}>{fmtEur(table.order_total)}</span>
                   )}
                   {(isOccupied || table.status === "closing") && table.order_created_at && (
-                    <span style={{ fontSize: 9, color: "#64748b" }}>{elapsedLabel(table.order_created_at)}</span>
+                    <span style={{ fontSize: 9, color: isDelayed ? "#f87171" : "#64748b" }}>{elapsedLabel(table.order_created_at)}</span>
                   )}
                   {mode === "edit" && activeTool === "tables" && (
                     <div

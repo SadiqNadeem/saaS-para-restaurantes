@@ -228,11 +228,15 @@ export default function PosTableSessionPage() {
     setCategories((catRes.data ?? []) as Category[]);
     setProducts((prodRes.data ?? []) as Product[]);
 
+    // Model A: ?order=<uuid> lets the POS open a specific order when a table has multiple
+    const searchParams = new URLSearchParams(location.search);
+    const effectiveOrderId = searchParams.get("order") ?? t.current_order_id;
+
     // Load existing order items if table is occupied
-    if (t.current_order_id) {
+    if (effectiveOrderId) {
       const [orderRes, itemsRes] = await Promise.all([
-        supabase.from("orders").select("id, created_at, total, subtotal, status, source").eq("id", t.current_order_id).single(),
-        supabase.from("order_items").select("id, product_id, qty, base_price, extras_total, final_unit_price, snapshot_name, notes, sent_to_kitchen, order_item_modifier_options(option_id, option_name, price)").eq("order_id", t.current_order_id),
+        supabase.from("orders").select("id, created_at, total, subtotal, status, source").eq("id", effectiveOrderId).single(),
+        supabase.from("order_items").select("id, product_id, qty, base_price, extras_total, final_unit_price, snapshot_name, notes, sent_to_kitchen, order_item_modifier_options(option_id, option_name, price)").eq("order_id", effectiveOrderId),
       ]);
 
       if (orderRes.data) {

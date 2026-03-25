@@ -8,7 +8,7 @@ import { supabase } from "../lib/supabase";
 
 // ─── constants ───────────────────────────────────────────────────────────────
 
-const TOTAL_STEPS = 4;
+const TOTAL_STEPS = 5;
 
 // Mon first in display, Sun last. Index matches day_of_week (0=Sun, 1=Mon…).
 const DISPLAY_DAY_ORDER = [1, 2, 3, 4, 5, 6, 0];
@@ -20,6 +20,7 @@ const STEP_META = [
   { title: "Tu restaurante", desc: "Información básica y configuración de delivery" },
   { title: "Horarios", desc: "¿Cuándo está abierto tu restaurante?" },
   { title: "Tu primer producto", desc: "Añade productos para que tu menú no esté vacío" },
+  { title: "Métodos de pago", desc: "¿Cómo quieres que te paguen tus clientes?" },
   { title: "¡Listo!", desc: "Tu restaurante está listo para recibir pedidos" },
 ] as const;
 
@@ -313,6 +314,8 @@ export default function Onboarding() {
   const [restaurantName, setRestaurantName] = useState("");
   const [phone, setPhone] = useState("");
   const [address, setAddress] = useState("");
+  const [cuisineType, setCuisineType] = useState("");
+  const [brandColor, setBrandColor] = useState("#4ec580");
   const [hasDelivery, setHasDelivery] = useState(false);
   const [deliveryRadius, setDeliveryRadius] = useState("5");
   const [deliveryFee, setDeliveryFee] = useState("0");
@@ -325,6 +328,11 @@ export default function Onboarding() {
   // ── Step 3 state ──
   const [categoryName, setCategoryName] = useState("");
   const [products, setProducts] = useState<ProductDraft[]>([emptyProduct()]);
+
+  // ── Step 4 state ──
+  const [allowCash, setAllowCash] = useState(true);
+  const [allowCard, setAllowCard] = useState(false);
+  const [allowCardOnline, setAllowCardOnline] = useState(false);
 
   // ── init: load restaurant from URL param ──
   useEffect(() => {
@@ -386,6 +394,9 @@ export default function Onboarding() {
       const settingsPayload: Record<string, unknown> = {
         restaurant_id: restaurantId,
         business_phone: phone.trim() || null,
+        cuisine_type: cuisineType.trim() || null,
+        brand_color: brandColor || null,
+        onboarding_step: 1,
       };
       if (hasDelivery) {
         settingsPayload.delivery_radius_km = Number(deliveryRadius) || 5;
@@ -438,6 +449,11 @@ export default function Onboarding() {
         .upsert(payload, { onConflict: "restaurant_id,day_of_week" });
 
       if (error) throw error;
+
+      await supabase
+        .from("restaurant_settings")
+        .upsert({ restaurant_id: restaurantId, onboarding_step: 2 }, { onConflict: "restaurant_id" });
+
       setCurrentStep(3);
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : "Error al guardar horarios.");
@@ -522,9 +538,47 @@ export default function Onboarding() {
         }
       }
 
+      await supabase
+        .from("restaurant_settings")
+        .upsert({ restaurant_id: restaurantId, onboarding_step: 3 }, { onConflict: "restaurant_id" });
+
       setCurrentStep(4);
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : "Error al guardar productos.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const saveStep4 = async () => {
+    setSaving(true);
+    setErrorMsg(null);
+    try {
+      const { error } = await supabase
+        .from("restaurant_settings")
+        .upsert(
+          {
+            restaurant_id: restaurantId,
+            allow_cash: allowCash,
+            allow_card: allowCard,
+            allow_card_on_delivery: allowCard,
+            allow_card_online: allowCardOnline,
+          },
+          { onConflict: "restaurant_id" }
+        );
+      if (error) throw error;
+
+      // Mark onboarding as completed when reaching the final step
+      await supabase
+        .from("restaurant_settings")
+        .upsert(
+          { restaurant_id: restaurantId, onboarding_step: 4, onboarding_completed: true },
+          { onConflict: "restaurant_id" }
+        );
+
+      setCurrentStep(5);
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : "Error al guardar métodos de pago.");
     } finally {
       setSaving(false);
     }
@@ -554,7 +608,7 @@ export default function Onboarding() {
 
   // Generate QR code when reaching the success step
   useEffect(() => {
-    if (currentStep !== 4 || !menuUrl) return;
+    if (currentStep !== 5 || !menuUrl) return;
     QRCode.toDataURL(menuUrl, {
       width: 220,
       margin: 2,
@@ -574,6 +628,7 @@ export default function Onboarding() {
     if (currentStep === 1) void saveStep1();
     else if (currentStep === 2) void saveStep2();
     else if (currentStep === 3) void saveStep3();
+    else if (currentStep === 4) void saveStep4();
   };
 
   // ── render ────────────────────────────────────────────────────────────────
@@ -588,7 +643,7 @@ export default function Onboarding() {
 
   return (
     <>
-      {currentStep === 4 && <ConfettiCanvas />}
+      {currentStep === 5 && <ConfettiCanvas />}
 
       <PageShell>
         <div
@@ -660,6 +715,36 @@ export default function Onboarding() {
                   placeholder="Calle Mayor 1, Madrid"
                   disabled={saving}
                 />
+              </Field>
+
+              <Field label="Tipo de cocina" hint="Aparecerá en el menú público (ej. Italiana, Árabe, Kebab…)">
+                <input
+                  style={INPUT}
+                  value={cuisineType}
+                  onChange={(e) => setCuisineType(e.target.value)}
+                  placeholder="Kebab, Fast Food, Mediterráneo…"
+                  disabled={saving}
+                />
+              </Field>
+
+              <Field label="Color de marca" hint="Color principal que verán tus clientes en el menú">
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <input
+                    type="color"
+                    value={brandColor}
+                    onChange={(e) => setBrandColor(e.target.value)}
+                    disabled={saving}
+                    style={{ width: 40, height: 36, padding: 2, border: "1px solid #d1d5db", borderRadius: 6, cursor: "pointer" }}
+                  />
+                  <span style={{ fontSize: 13, color: "#6b7280" }}>{brandColor}</span>
+                  <button
+                    type="button"
+                    onClick={() => setBrandColor("#4ec580")}
+                    style={{ fontSize: 12, color: "#9ca3af", background: "none", border: "none", cursor: "pointer", padding: 0 }}
+                  >
+                    Restablecer
+                  </button>
+                </div>
               </Field>
 
               <Field label="Logo (opcional)">
@@ -984,8 +1069,52 @@ export default function Onboarding() {
             </div>
           )}
 
-          {/* ── Step 4: ¡Listo! ── */}
+          {/* ── Step 4: Métodos de pago ── */}
           {currentStep === 4 && (
+            <div style={{ display: "flex", flexDirection: "column" as const, gap: 12 }}>
+              <div
+                style={{
+                  fontSize: 13,
+                  color: "#6b7280",
+                  background: "#f9fafb",
+                  border: "1px solid #e5e7eb",
+                  borderRadius: 8,
+                  padding: "10px 12px",
+                  lineHeight: 1.55,
+                }}
+              >
+                Elige cómo quieren pagar tus clientes. Puedes cambiar esto en cualquier momento desde Ajustes.
+              </div>
+
+              {[
+                { label: "Efectivo", hint: "El cliente paga en mano al recoger o al recibir el pedido", value: allowCash, set: setAllowCash },
+                { label: "Tarjeta en local / entrega", hint: "El cliente paga con tarjeta al recoger o al recibir", value: allowCard, set: setAllowCard },
+                { label: "Pago online (Stripe)", hint: "El cliente paga antes de confirmar el pedido — requiere conectar Stripe desde Ajustes", value: allowCardOnline, set: setAllowCardOnline },
+              ].map(({ label, hint, value, set }) => (
+                <div
+                  key={label}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between" as const,
+                    gap: 12,
+                    padding: "12px 14px",
+                    border: "1px solid #e5e7eb",
+                    borderRadius: 10,
+                  }}
+                >
+                  <div>
+                    <div style={{ fontWeight: 500, fontSize: 14, color: "#374151" }}>{label}</div>
+                    <div style={{ fontSize: 12, color: "#9ca3af", marginTop: 2 }}>{hint}</div>
+                  </div>
+                  <Toggle on={value} onChange={set} disabled={saving} />
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* ── Step 5: ¡Listo! ── */}
+          {currentStep === 5 && (
             <div
               style={{
                 display: "flex",
@@ -1126,8 +1255,8 @@ export default function Onboarding() {
             </div>
           )}
 
-          {/* ── Navigation (steps 1–3) ── */}
-          {currentStep < 4 ? (
+          {/* ── Navigation (steps 1–4) ── */}
+          {currentStep < 5 ? (
             <div
               style={{
                 display: "flex",
@@ -1163,6 +1292,17 @@ export default function Onboarding() {
                   </button>
                 ) : null}
 
+                {currentStep === 4 ? (
+                  <button
+                    type="button"
+                    onClick={() => setCurrentStep(5)}
+                    disabled={saving}
+                    style={{ ...BTN_SECONDARY, color: "#9ca3af" }}
+                  >
+                    Omitir
+                  </button>
+                ) : null}
+
                 <button
                   type="button"
                   onClick={handleNext}
@@ -1171,7 +1311,7 @@ export default function Onboarding() {
                 >
                   {saving
                     ? "Guardando..."
-                    : currentStep === 3
+                    : currentStep === 4
                     ? "Finalizar"
                     : "Siguiente →"}
                 </button>

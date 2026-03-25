@@ -9,6 +9,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { checkRateLimit, getClientIp, RATE_LIMITS, rateLimitedResponse } from "../_shared/rateLimit.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -21,6 +22,11 @@ serve(async (req: Request) => {
   }
 
   try {
+    // ── 0. Rate limit por IP (antes de cualquier trabajo costoso) ─────────────
+    const ip = getClientIp(req);
+    const rl = await checkRateLimit(`ai:ip:${ip}`, RATE_LIMITS.ai);
+    if (!rl.allowed) return rateLimitedResponse(rl.retryAfter);
+
     // ── 1. Verificar autenticación ────────────────────────────────────────────
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) {

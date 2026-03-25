@@ -245,7 +245,7 @@ export default function AdminCouponsPage() {
     setDeleting(true);
     const { error: err } = await supabase
       .from("coupons")
-      .delete()
+      .update({ is_active: false })
       .eq("id", deleteId)
       .eq("restaurant_id", restaurantId);
 
@@ -256,7 +256,7 @@ export default function AdminCouponsPage() {
       pushToast("error", err.message);
       return;
     }
-    pushToast("success", "Cupón eliminado.");
+    pushToast("success", "Cupón desactivado.");
     void load();
   };
 
@@ -408,6 +408,8 @@ export default function AdminCouponsPage() {
                 : `${coupon.uses_count} usos`;
             const isExpired =
               coupon.valid_until !== null && new Date(coupon.valid_until) < new Date();
+            const isExhausted =
+              coupon.max_uses !== null && coupon.uses_count >= coupon.max_uses;
 
             return (
               <div
@@ -418,7 +420,7 @@ export default function AdminCouponsPage() {
                   alignItems: "flex-start",
                   gap: 14,
                   flexWrap: "wrap",
-                  opacity: (!coupon.is_active || isExpired) ? 0.65 : 1,
+                  opacity: (!coupon.is_active || isExpired || isExhausted) ? 0.65 : 1,
                 }}
               >
                 {/* Code badge */}
@@ -480,7 +482,21 @@ export default function AdminCouponsPage() {
                         Caducado
                       </span>
                     )}
-                    {coupon.is_active && !isExpired && (
+                    {coupon.is_active && !isExpired && isExhausted && (
+                      <span
+                        style={{
+                          background: "#fef3c7",
+                          color: "#92400e",
+                          borderRadius: 999,
+                          padding: "2px 8px",
+                          fontSize: 11,
+                          fontWeight: 700,
+                        }}
+                      >
+                        Agotado
+                      </span>
+                    )}
+                    {coupon.is_active && !isExpired && !isExhausted && (
                       <span
                         style={{
                           background: "var(--brand-primary-soft)",
@@ -530,8 +546,9 @@ export default function AdminCouponsPage() {
                         type="button"
                         onClick={() => setDeleteId(coupon.id)}
                         style={{ ...btnDanger, padding: "6px 10px" }}
+                        disabled={!coupon.is_active}
                       >
-                        Eliminar
+                        Desactivar
                       </button>
                     </>
                   )}
@@ -827,10 +844,10 @@ export default function AdminCouponsPage() {
             }}
           >
             <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: "#111827" }}>
-              Eliminar cupón
+              Desactivar cupón
             </h3>
             <p style={{ margin: 0, fontSize: 13, color: "#6b7280" }}>
-              Esta acción no se puede deshacer. ¿Seguro que quieres eliminar este cupón?
+              El cupón quedará inactivo y no podrá usarse. Puedes reactivarlo editándolo.
             </p>
             <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
               <button
@@ -847,7 +864,7 @@ export default function AdminCouponsPage() {
                 style={{ ...btnPrimary, background: "#dc2626" }}
                 disabled={deleting}
               >
-                {deleting ? "Eliminando..." : "Eliminar"}
+                {deleting ? "Desactivando..." : "Desactivar"}
               </button>
             </div>
           </div>

@@ -32,6 +32,13 @@ type CartItem = {
   extras: CartExtra[];
 };
 
+type UpsellProduct = {
+  id: string;
+  name: string;
+  price: number;
+  image_url: string | null;
+};
+
 type CheckoutPageProps = {
   cart: CartItem[];
   cartTotal: number;
@@ -42,6 +49,8 @@ type CheckoutPageProps = {
   restaurantClosedMessage?: string;
   nextOpeningText?: string | null;
   contactPhone?: string | null;
+  upsellProducts?: UpsellProduct[];
+  onAddUpsellProduct?: (productId: string, name: string, price: number) => void;
 };
 
 const STEPS: Array<{ key: "customer" | "type" | "delivery" | "payment" | "review"; label: string }> = [
@@ -62,6 +71,8 @@ export default function CheckoutPage({
   restaurantClosedMessage = "No se pueden hacer pedidos porque el restaurante esta cerrado",
   nextOpeningText = null,
   contactPhone = null,
+  upsellProducts = [],
+  onAddUpsellProduct,
 }: CheckoutPageProps) {
   const { restaurantId, menuPath } = useRestaurant();
   const step = useCheckoutStore((s) => s.step);
@@ -69,9 +80,14 @@ export default function CheckoutPage({
   const next = useCheckoutStore((s) => s.next);
   const back = useCheckoutStore((s) => s.back);
 
+  // Filter out products already in the cart so we don't suggest what the customer already ordered
+  const filteredUpsellProducts = useMemo(() => {
+    const inCart = new Set(cart.map((item) => item.productId));
+    return upsellProducts.filter((p) => !inCart.has(p.id));
+  }, [upsellProducts, cart]);
+
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [touched, setTouched] = useState<Record<string, boolean>>({});
-  const [isSubmitting] = useState(false);
   const [settings, setSettings] = useState<{
     min_order_subtotal?: number | null;
     free_delivery_over?: number | null;
@@ -82,6 +98,8 @@ export default function CheckoutPage({
     delivery_fee_min?: number | null;
     delivery_fee_max?: number | null;
     is_accepting_orders?: boolean | null;
+    delivery_enabled?: boolean | null;
+    pickup_enabled?: boolean | null;
   } | null>(null);
 
   useEffect(() => {
@@ -90,7 +108,7 @@ export default function CheckoutPage({
       const { data } = await supabase
         .from("restaurant_settings")
         .select(
-          "min_order_subtotal, free_delivery_over, delivery_fee_mode, delivery_fee_fixed, delivery_fee_base, delivery_fee_per_km, delivery_fee_min, delivery_fee_max, is_accepting_orders"
+          "min_order_subtotal, free_delivery_over, delivery_fee_mode, delivery_fee_fixed, delivery_fee_base, delivery_fee_per_km, delivery_fee_min, delivery_fee_max, is_accepting_orders, delivery_enabled, pickup_enabled"
         )
         .eq("restaurant_id", restaurantId)
         .limit(1)
@@ -247,10 +265,6 @@ export default function CheckoutPage({
   );
 
   const handleNext = () => {
-    if (isSubmitting) {
-      return;
-    }
-
     const result = canProceed({ step, draft, cartTotal: totalFinal });
     setErrors(result.errors);
 
@@ -436,21 +450,23 @@ export default function CheckoutPage({
       {step === "customer" && (
         <StepCustomer
           onContinue={handleNext}
-          disabledContinue={isSubmitting}
+          disabledContinue={false}
           primaryErrors={[]}
         />
       )}
       {step === "type" && (
         <StepType
           onContinue={handleNext}
-          disabledContinue={!validation.ok || isSubmitting}
+          disabledContinue={!validation.ok}
           primaryErrors={primaryErrors}
+          deliveryEnabled={settings?.delivery_enabled !== false}
+          pickupEnabled={settings?.pickup_enabled !== false}
         />
       )}
       {step === "delivery" && (
         <StepDelivery
           onContinue={handleNext}
-          disabledContinue={!validation.ok || isSubmitting}
+          disabledContinue={!validation.ok}
           primaryErrors={primaryErrors}
         />
       )}
@@ -460,7 +476,7 @@ export default function CheckoutPage({
           cart={cart}
           onOrderError={onOrderError}
           onContinue={handleNext}
-          disabledContinue={!validation.ok || isSubmitting}
+          disabledContinue={!validation.ok}
           primaryErrors={touched.cashGiven ? primaryErrors : []}
         />
       )}
@@ -474,6 +490,8 @@ export default function CheckoutPage({
           onClose={onClose}
           externalBlockingMessage={minOrderMessage}
           forceDisableSubmit={isBelowMinOrderSubtotal}
+          upsellProducts={filteredUpsellProducts}
+          onAddUpsellProduct={onAddUpsellProduct}
         />
       )}
 

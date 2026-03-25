@@ -1,0 +1,81 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  ci:
+    name: Lint · Typecheck · Test · Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      # ── Checkout ────────────────────────────────────────────────────────────
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # ── Node setup ──────────────────────────────────────────────────────────
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # ── Install dependencies ─────────────────────────────────────────────────
+      - name: Install dependencies
+        run: npm ci
+
+      # ── Verify required env vars are documented ──────────────────────────────
+      # Comprueba que .env.example existe y contiene las variables críticas.
+      # No verifica valores reales (no están en CI), solo que estén documentadas.
+      - name: Verify .env.example is complete
+        run: |
+          echo "Checking .env.example for required variables..."
+          for var in VITE_SUPABASE_URL VITE_SUPABASE_ANON_KEY VITE_STRIPE_PUBLISHABLE_KEY; do
+            if ! grep -q "^${var}=" .env.example; then
+              echo "❌ Missing ${var} in .env.example"
+              exit 1
+            fi
+            echo "✓ ${var} documented"
+          done
+          echo "✅ All required variables are documented in .env.example"
+
+      # ── Lint ─────────────────────────────────────────────────────────────────
+      - name: Lint
+        run: npm run lint
+
+      # ── TypeScript check ─────────────────────────────────────────────────────
+      - name: TypeScript typecheck
+        run: npm run typecheck
+        # Proporciona variables de entorno ficticias para que env.ts no falle
+        env:
+          VITE_SUPABASE_URL: https://placeholder.supabase.co
+          VITE_SUPABASE_ANON_KEY: placeholder-anon-key
+
+      # ── Unit tests ───────────────────────────────────────────────────────────
+      - name: Run unit tests
+        run: npm test
+        env:
+          VITE_SUPABASE_URL: https://placeholder.supabase.co
+          VITE_SUPABASE_ANON_KEY: placeholder-anon-key
+
+      # ── Production build ─────────────────────────────────────────────────────
+      - name: Build for production
+        run: npm run build
+        env:
+          VITE_SUPABASE_URL: https://placeholder.supabase.co
+          VITE_SUPABASE_ANON_KEY: placeholder-anon-key
+          VITE_STRIPE_ENABLED: "false"
+          VITE_STRIPE_PUBLISHABLE_KEY: pk_test_placeholder
+
+      # ── Upload build artifact (solo en push a main) ──────────────────────────
+      - name: Upload build artifact
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          retention-days: 7

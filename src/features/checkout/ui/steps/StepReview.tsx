@@ -24,6 +24,13 @@ type CartItem = {
   extras: CartExtra[];
 };
 
+type UpsellProduct = {
+  id: string;
+  name: string;
+  price: number;
+  image_url: string | null;
+};
+
 type Props = {
   cart: CartItem[];
   cartTotal: number;
@@ -33,6 +40,8 @@ type Props = {
   onClose?: () => void;
   externalBlockingMessage?: string | null;
   forceDisableSubmit?: boolean;
+  upsellProducts?: UpsellProduct[];
+  onAddUpsellProduct?: (productId: string, name: string, price: number) => void;
 };
 
 type RestaurantHourRow = {
@@ -279,6 +288,8 @@ export default function StepReview({
   onClose,
   externalBlockingMessage = null,
   forceDisableSubmit = false,
+  upsellProducts = [],
+  onAddUpsellProduct,
 }: Props) {
   const { restaurantId, menuPath, name: restaurantName } = useRestaurant();
   const draft = useCheckoutStore((s) => s.draft);
@@ -288,6 +299,10 @@ export default function StepReview({
   const back = useCheckoutStore((s) => s.back);
   const reset = useCheckoutStore((s) => s.reset);
   const regenerateOrderKey = useCheckoutStore((s) => s.regenerateOrderKey);
+  const appliedCouponCode = useCheckoutStore((s) => s.appliedCouponCode);
+  const appliedDiscount = useCheckoutStore((s) => s.appliedDiscount);
+  const storeCoupon = useCheckoutStore((s) => s.setCoupon);
+  const storeClearCoupon = useCheckoutStore((s) => s.clearCoupon);
   const [customTip, setCustomTip] = useState("");
 
   // WhatsApp
@@ -300,12 +315,19 @@ export default function StepReview({
   const [loyaltyEnabled, setLoyaltyEnabled] = useState(false);
   const [loyaltyPointsPerEur, setLoyaltyPointsPerEur] = useState(0);
 
-  // Coupon state
+  // Coupon state (code + amount persist in store/localStorage; UI state is local)
+  const couponCode = appliedCouponCode;
+  const discountAmount = appliedDiscount;
   const [couponInput, setCouponInput] = useState("");
-  const [couponCode, setCouponCode] = useState<string | null>(null);
-  const [discountAmount, setDiscountAmount] = useState(0);
-  const [couponStatus, setCouponStatus] = useState<"idle" | "checking" | "applied" | "error">("idle");
-  const [couponMessage, setCouponMessage] = useState<string | null>(null);
+  const [couponStatus, setCouponStatus] = useState<"idle" | "checking" | "applied" | "error">(
+    appliedCouponCode ? "applied" : "idle"
+  );
+  const [couponMessage, setCouponMessage] = useState<string | null>(
+    appliedCouponCode ? `¡Cupón aplicado! -${appliedDiscount.toFixed(2)} €` : null
+  );
+
+  const [showingUpsell, setShowingUpsell] = useState(false);
+  const [upsellDismissed, setUpsellDismissed] = useState(false);
 
   const submittingRef = useRef(false);
   const [submitting, setSubmitting] = useState(false);
@@ -421,8 +443,7 @@ export default function StepReview({
     if (err || !data) {
       setCouponStatus("error");
       setCouponMessage("Código de descuento no válido.");
-      setDiscountAmount(0);
-      setCouponCode(null);
+      storeClearCoupon();
       return;
     }
 
@@ -441,29 +462,25 @@ export default function StepReview({
     if (coupon.valid_from && new Date(coupon.valid_from) > now) {
       setCouponStatus("error");
       setCouponMessage("Este cupón todavía no es válido.");
-      setDiscountAmount(0);
-      setCouponCode(null);
+      storeClearCoupon();
       return;
     }
     if (coupon.valid_until && new Date(coupon.valid_until) < now) {
       setCouponStatus("error");
       setCouponMessage("Este cupón ha caducado.");
-      setDiscountAmount(0);
-      setCouponCode(null);
+      storeClearCoupon();
       return;
     }
     if (coupon.max_uses !== null && coupon.uses_count >= coupon.max_uses) {
       setCouponStatus("error");
       setCouponMessage("Este cupón ha alcanzado el límite de usos.");
-      setDiscountAmount(0);
-      setCouponCode(null);
+      storeClearCoupon();
       return;
     }
     if (cartTotal < coupon.min_order_amount) {
       setCouponStatus("error");
       setCouponMessage(`Pedido mínimo para este cupón: ${coupon.min_order_amount.toFixed(2)} €.`);
-      setDiscountAmount(0);
-      setCouponCode(null);
+      storeClearCoupon();
       return;
     }
 
@@ -472,18 +489,32 @@ export default function StepReview({
         ? Math.min(cartTotal, (cartTotal * coupon.discount_value) / 100)
         : Math.min(cartTotal, coupon.discount_value);
 
-    setCouponCode(code);
-    setDiscountAmount(Math.round(discount * 100) / 100);
+    const roundedDiscount = Math.round(discount * 100) / 100;
+    storeCoupon(code, roundedDiscount);
     setCouponStatus("applied");
     setCouponMessage(`¡Cupón aplicado! -${discount.toFixed(2)} €`);
   };
 
   const removeCoupon = () => {
     setCouponInput("");
-    setCouponCode(null);
-    setDiscountAmount(0);
+    storeClearCoupon();
     setCouponStatus("idle");
     setCouponMessage(null);
+  };
+
+  // Intercepts the button click: show upsell overlay before actual submission
+  const handleSubmitClick = () => {
+    if (!upsellDismissed && upsellProducts.length > 0) {
+      setShowingUpsell(true);
+      return;
+    }
+    void onSubmit();
+  };
+
+  const handleUpsellContinue = () => {
+    setUpsellDismissed(true);
+    setShowingUpsell(false);
+    void onSubmit();
   };
 
   const onSubmit = async () => {
@@ -962,12 +993,148 @@ export default function StepReview({
           Atras
         </button>
         <button
-          onClick={onSubmit}
+          onClick={handleSubmitClick}
           disabled={submitting || isRestaurantClosed || forceDisableSubmit || Boolean(blockingReason)}
         >
           {submitting ? "Enviando..." : "Finalizar pedido"}
         </button>
       </div>
+
+      {/* ── Upsell overlay ─────────────────────────────────────────────────── */}
+      {showingUpsell && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.45)",
+            display: "flex",
+            alignItems: "flex-end",
+            justifyContent: "center",
+            zIndex: 2000,
+            padding: "0 0 env(safe-area-inset-bottom,0)",
+          }}
+          onClick={(e) => { if (e.target === e.currentTarget) handleUpsellContinue(); }}
+        >
+          <div
+            style={{
+              background: "#fff",
+              borderRadius: "20px 20px 0 0",
+              padding: "20px 18px 24px",
+              width: "100%",
+              maxWidth: 480,
+              boxShadow: "0 -4px 24px rgba(0,0,0,0.14)",
+              display: "grid",
+              gap: 14,
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <h4 style={{ margin: 0, fontSize: 17, fontWeight: 700, color: "#111827" }}>
+                ¿Añades algo más?
+              </h4>
+              <button
+                type="button"
+                onClick={handleUpsellContinue}
+                style={{ background: "none", border: "none", fontSize: 20, color: "#9ca3af", cursor: "pointer", lineHeight: 1, padding: "0 2px" }}
+                aria-label="Cerrar"
+              >
+                ×
+              </button>
+            </div>
+
+            <div style={{ display: "grid", gap: 10 }}>
+              {upsellProducts.map((product) => (
+                <div
+                  key={product.id}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 12,
+                    border: "1px solid #e5e7eb",
+                    borderRadius: 12,
+                    padding: "10px 12px",
+                    background: "#f9fafb",
+                  }}
+                >
+                  {product.image_url ? (
+                    <img
+                      src={product.image_url}
+                      alt={product.name}
+                      style={{ width: 52, height: 52, objectFit: "cover", borderRadius: 8, flexShrink: 0 }}
+                    />
+                  ) : (
+                    <div
+                      style={{
+                        width: 52,
+                        height: 52,
+                        borderRadius: 8,
+                        background: "#e5e7eb",
+                        flexShrink: 0,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        fontSize: 22,
+                      }}
+                    >
+
+                    </div>
+                  )}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 600, fontSize: 14, color: "#111827", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                      {product.name}
+                    </div>
+                    <div style={{ fontSize: 13, color: "#6b7280", marginTop: 2 }}>
+                      {product.price.toFixed(2)} €
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onAddUpsellProduct?.(product.id, product.name, product.price);
+                    }}
+                    style={{
+                      background: "var(--brand-primary, #4ec580)",
+                      color: "#fff",
+                      border: "none",
+                      borderRadius: 8,
+                      width: 36,
+                      height: 36,
+                      fontSize: 22,
+                      fontWeight: 700,
+                      cursor: "pointer",
+                      flexShrink: 0,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      lineHeight: 1,
+                    }}
+                    aria-label={`Añadir ${product.name}`}
+                  >
+                    +
+                  </button>
+                </div>
+              ))}
+            </div>
+
+            <button
+              type="button"
+              onClick={handleUpsellContinue}
+              style={{
+                background: "none",
+                border: "1px solid #d1d5db",
+                borderRadius: 10,
+                padding: "10px 16px",
+                fontSize: 14,
+                fontWeight: 600,
+                color: "#374151",
+                cursor: "pointer",
+                marginTop: 4,
+              }}
+            >
+              No, continuar con mi pedido
+            </button>
+          </div>
+        </div>
+      )}
       {isRestaurantClosed ? (
         <div
           role="alert"

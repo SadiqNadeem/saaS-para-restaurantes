@@ -1,9 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import type { CSSProperties } from "react";
-
+import { ShoppingCart, Check, MessageSquare, ChevronDown, Plus, Minus } from "lucide-react";
 import { supabase } from "../../lib/supabase";
-
-// ─── Exported types (used by PosCajaPage) ────────────────────────────────────
 
 export type SelectedModifier = {
   group_id: string;
@@ -23,8 +20,6 @@ export type ModalConfirmPayload = {
   unit_price: number;
   notes: string;
 };
-
-// ─── Internal types ───────────────────────────────────────────────────────────
 
 type ModGroup = {
   id: string;
@@ -48,704 +43,508 @@ type Props = {
   onClose: () => void;
 };
 
-// ─── Helper ───────────────────────────────────────────────────────────────────
+// ─── Palette ──────────────────────────────────────────────────────────────────
+const C = {
+  bg:         "#0d1117",
+  panel:      "#141a23",
+  surface:    "#1a2232",
+  surfaceHi:  "#212d3f",
+  border:     "#2a3547",
+  borderHi:   "#3d5068",
+  accent:     "#f59e0b",   // amber — seleccionado / botón añadir
+  accentBg:   "#1c1203",
+  accentText: "#0d1117",
+  text:       "#f0f6fc",
+  textSub:    "#8b949e",
+  textMuted:  "#3d4f63",
+  error:      "#f85149",
+  errorBg:    "#1c0a0a",
+} as const;
 
-function fmtEur(n: number): string {
-  return new Intl.NumberFormat("es-ES", {
-    style: "currency",
-    currency: "EUR",
-  }).format(n);
+const DISPLAY = '"Barlow Condensed", "Arial Narrow", Arial, sans-serif';
+const BODY    = '"DM Sans", "Helvetica Neue", Arial, sans-serif';
+
+function fmtEur(n: number) {
+  return new Intl.NumberFormat("es-ES", { style: "currency", currency: "EUR" }).format(n);
+}
+
+function injectFont() {
+  const id = "pmm-font";
+  if (document.getElementById(id)) return;
+  const el = document.createElement("link");
+  el.id  = id; el.rel = "stylesheet";
+  el.href = "https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700;800&family=DM+Sans:wght@400;500;600&display=swap";
+  document.head.appendChild(el);
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
-
 export default function PosModifierModal({ product, restaurantId, onConfirm, onClose }: Props) {
-  const [groups, setGroups] = useState<ModGroup[]>([]);
-  const [optionsByGroup, setOptionsByGroup] = useState<Record<string, ModOption[]>>({});
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const [groups, setGroups]           = useState<ModGroup[]>([]);
+  const [optsByGroup, setOptsByGroup] = useState<Record<string, ModOption[]>>({});
+  const [loading, setLoading]         = useState(true);
+  const [loadError, setLoadError]     = useState<string | null>(null);
+  const [selected, setSelected]       = useState<Record<string, string[]>>({});
+  const [qty, setQty]                 = useState(1);
+  const [notes, setNotes]             = useState("");
+  const [notesOpen, setNotesOpen]     = useState(false);
+  const [attempted, setAttempted]     = useState(false);
 
-  // selected[group_id] = [option_id, ...]
-  const [selected, setSelected] = useState<Record<string, string[]>>({});
-  const [qty, setQty] = useState(1);
-  const [notes, setNotes] = useState("");
-  const [attempted, setAttempted] = useState(false);
+  useEffect(() => { injectFont(); }, []);
 
-  // ── Load modifier groups + options ──
+  // ── Carga de datos ───────────────────────────────────────────────────────────
   useEffect(() => {
     let alive = true;
-    setLoading(true);
-    setLoadError(null);
-    setGroups([]);
-    setOptionsByGroup({});
-    setSelected({});
-    setQty(1);
-    setNotes("");
-    setAttempted(false);
+    setLoading(true); setLoadError(null);
+    setGroups([]); setOptsByGroup({});
+    setSelected({}); setQty(1); setNotes(""); setAttempted(false); setNotesOpen(false);
 
-    const load = async () => {
-      // Step 1: which groups are linked to this product (with their display order)
-      const { data: pmgData, error: pmgErr } = await supabase
+    (async () => {
+      const { data: pmg, error: pmgErr } = await supabase
         .from("product_modifier_groups")
         .select("modifier_group_id")
         .eq("restaurant_id", restaurantId)
         .eq("product_id", product.id);
 
       if (!alive) return;
-      if (pmgErr) {
-        if (import.meta.env.DEV) console.error("[pos] load product_modifier_groups", pmgErr);
-        setLoadError("No se pudieron cargar los modificadores.");
-        setLoading(false);
-        return;
-      }
+      if (pmgErr) { setLoadError("Error al cargar opciones."); setLoading(false); return; }
 
-      const pmgRows = (pmgData ?? []) as Array<{ modifier_group_id: string }>;
-      const groupIds = pmgRows.map((r) => r.modifier_group_id);
+      const groupIds = ((pmg ?? []) as { modifier_group_id: string }[]).map(r => r.modifier_group_id);
+      if (!groupIds.length) { setLoading(false); return; }
 
-      if (groupIds.length === 0) {
-        setLoading(false);
-        return;
-      }
-
-      // Step 2+3: groups + options in parallel
-      const [groupRes, optRes] = await Promise.all([
-        supabase
-          .from("modifier_groups")
-          .select("id, name, min_select, max_select")
-          .in("id", groupIds)
-          .eq("restaurant_id", restaurantId)
-          .eq("is_active", true),
-        supabase
-          .from("modifier_options")
-          .select("id, group_id, name, price, position")
-          .in("group_id", groupIds)
-          .eq("restaurant_id", restaurantId)
-          .eq("is_active", true)
+      const [gRes, oRes] = await Promise.all([
+        supabase.from("modifier_groups").select("id,name,min_select,max_select")
+          .in("id", groupIds).eq("restaurant_id", restaurantId).eq("is_active", true),
+        supabase.from("modifier_options").select("id,group_id,name,price,position")
+          .in("group_id", groupIds).eq("restaurant_id", restaurantId).eq("is_active", true)
           .order("position", { ascending: true }),
       ]);
 
       if (!alive) return;
+      if (gRes.error || oRes.error) { setLoadError("Error al cargar opciones."); setLoading(false); return; }
 
-      if (groupRes.error) {
-        if (import.meta.env.DEV) console.error("[pos] load modifier_groups", groupRes.error);
-        setLoadError("No se pudieron cargar los modificadores.");
-        setLoading(false);
-        return;
+      const map: Record<string, ModOption[]> = {};
+      for (const o of (oRes.data ?? []) as ModOption[]) {
+        if (!map[o.group_id]) map[o.group_id] = [];
+        map[o.group_id].push(o);
       }
-      if (optRes.error) {
-        if (import.meta.env.DEV) console.error("[pos] load modifier_options", optRes.error);
-        setLoadError("No se pudieron cargar los modificadores.");
-        setLoading(false);
-        return;
-      }
-
-      type RawGroup = { id: string; name: string; min_select: number; max_select: number };
-      const rawGroups = (groupRes.data ?? []) as RawGroup[];
-
-      const sortedGroups: ModGroup[] = rawGroups;
-
-      const rawOptions = (optRes.data ?? []) as ModOption[];
-      const optsMap: Record<string, ModOption[]> = {};
-      for (const opt of rawOptions) {
-        if (!optsMap[opt.group_id]) optsMap[opt.group_id] = [];
-        optsMap[opt.group_id].push(opt);
-      }
-
-      setGroups(sortedGroups);
-      setOptionsByGroup(optsMap);
+      setGroups((gRes.data ?? []) as ModGroup[]);
+      setOptsByGroup(map);
       setLoading(false);
-    };
+    })();
 
-    void load();
-    return () => {
-      alive = false;
-    };
+    return () => { alive = false; };
   }, [product.id, restaurantId]);
 
-
-  // ── Toggle option ──
-  const toggleOption = (group: ModGroup, optId: string) => {
-    setSelected((prev) => {
-      const current = prev[group.id] ?? [];
-      const exists = current.includes(optId);
-
-      if (group.max_select === 1) {
-        // Radio: same click deselects, different click replaces
-        return { ...prev, [group.id]: exists ? [] : [optId] };
-      }
-
-      // Checkbox
-      if (exists) {
-        return { ...prev, [group.id]: current.filter((id) => id !== optId) };
-      }
-      if (current.length >= group.max_select) return prev; // at max, ignore
-      return { ...prev, [group.id]: [...current, optId] };
+  // ── Selección ────────────────────────────────────────────────────────────────
+  const toggle = (group: ModGroup, optId: string) => {
+    setSelected(prev => {
+      const cur = prev[group.id] ?? [];
+      const on  = cur.includes(optId);
+      if (group.max_select === 1) return { ...prev, [group.id]: on ? [] : [optId] };
+      if (on)  return { ...prev, [group.id]: cur.filter(id => id !== optId) };
+      if (cur.length >= group.max_select) return prev;
+      return { ...prev, [group.id]: [...cur, optId] };
     });
   };
 
-  // ── Derived: flat list of selected modifiers ──
-  const selectedModifiers = useMemo((): SelectedModifier[] => {
+  // ── Derivados ────────────────────────────────────────────────────────────────
+  const selMods = useMemo((): SelectedModifier[] => {
     const out: SelectedModifier[] = [];
-    for (const group of groups) {
-      const optIds = selected[group.id] ?? [];
-      const options = optionsByGroup[group.id] ?? [];
-      for (const optId of optIds) {
-        const opt = options.find((o) => o.id === optId);
-        if (opt) {
-          out.push({
-            group_id: group.id,
-            group_name: group.name,
-            option_id: opt.id,
-            option_name: opt.name,
-            price: Number(opt.price),
-          });
-        }
+    for (const g of groups) {
+      for (const id of selected[g.id] ?? []) {
+        const o = (optsByGroup[g.id] ?? []).find(x => x.id === id);
+        if (o) out.push({ group_id: g.id, group_name: g.name, option_id: o.id, option_name: o.name, price: +o.price });
       }
     }
     return out;
-  }, [groups, selected, optionsByGroup]);
+  }, [groups, selected, optsByGroup]);
 
-  const extrasTotal = useMemo(
-    () => selectedModifiers.reduce((sum, m) => sum + m.price, 0),
-    [selectedModifiers]
-  );
+  const extrasTotal = useMemo(() => selMods.reduce((s, m) => s + m.price, 0), [selMods]);
+  const unitPrice   = +product.price + extrasTotal;
 
-  const unitPrice = Number(product.price) + extrasTotal;
-
-  // ── Validation ──
-  const groupErrors = useMemo((): Record<string, string | null> => {
-    const errs: Record<string, string | null> = {};
+  const groupErrors = useMemo(() => {
+    const e: Record<string, string | null> = {};
     for (const g of groups) {
-      const cnt = (selected[g.id] ?? []).length;
-      if (cnt < g.min_select) {
-        errs[g.id] =
-          g.min_select === 1 ? "Elige una opción" : `Elige al menos ${g.min_select}`;
-      } else if (cnt > g.max_select) {
-        errs[g.id] = `Máximo ${g.max_select} opciones`;
-      } else {
-        errs[g.id] = null;
-      }
+      const n = (selected[g.id] ?? []).length;
+      e[g.id] = n < g.min_select
+        ? (g.min_select === 1 ? "Elige una opción" : `Mínimo ${g.min_select}`)
+        : null;
     }
-    return errs;
+    return e;
   }, [groups, selected]);
 
-  const isValid = useMemo(
-    () => Object.values(groupErrors).every((e) => e === null),
-    [groupErrors]
-  );
+  const isValid = useMemo(() => Object.values(groupErrors).every(e => e === null), [groupErrors]);
 
-  // ── Escape key closes modal ──
   useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
+    const h = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", h);
+    return () => document.removeEventListener("keydown", h);
   }, [onClose]);
 
-  // ── Confirm ──
   const handleConfirm = () => {
     setAttempted(true);
     if (!isValid) return;
-    onConfirm({
-      product_id: product.id,
-      name: product.name,
-      base_price: Number(product.price),
-      qty,
-      modifiers: selectedModifiers,
-      extras_total: extrasTotal,
-      unit_price: unitPrice,
-      notes,
-    });
+    onConfirm({ product_id: product.id, name: product.name, base_price: +product.price, qty, modifiers: selMods, extras_total: extrasTotal, unit_price: unitPrice, notes });
   };
 
-  // ─────────────────────────────────────────────────────────────────────────
+  // ─── Render ─────────────────────────────────────────────────────────────────
   return (
     <div
-      style={m.backdrop}
-      role="presentation"
       onClick={onClose}
+      role="presentation"
+      style={{
+        position: "fixed", inset: 0, zIndex: 1100,
+        display: "flex", alignItems: "center", justifyContent: "center",
+        background: "rgba(0,0,0,0.78)",
+        padding: 16, fontFamily: BODY,
+      }}
     >
       <div
-        style={m.modal}
+        onClick={e => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
-        aria-label={`Opciones: ${product.name}`}
-        onClick={(e) => e.stopPropagation()}
+        aria-label={`Personalizar: ${product.name}`}
+        style={{
+          width: "100%", maxWidth: 680,
+          maxHeight: "min(800px, calc(100vh - 32px))",
+          display: "flex", flexDirection: "column",
+          background: C.panel,
+          borderRadius: 16,
+          border: `1px solid ${C.border}`,
+          boxShadow: "0 32px 80px rgba(0,0,0,0.85)",
+          overflow: "hidden",
+        }}
       >
-        {/* ── Header ── */}
-        <div style={m.header}>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={m.productName}>{product.name}</div>
-            <div style={m.priceLine}>
-              Base {fmtEur(Number(product.price))}
-              {extrasTotal > 0 && (
-                <>
-                  {" · "}Extras {fmtEur(extrasTotal)}
-                  {" · "}
-                  <strong style={{ color: "#4ade80" }}>
-                    Total {fmtEur(unitPrice)}
-                  </strong>
-                </>
-              )}
-            </div>
+        {/* ══ HEADER ══ */}
+        <div style={{
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          padding: "14px 18px",
+          borderBottom: `1px solid ${C.border}`,
+          background: C.bg,
+          flexShrink: 0, gap: 12,
+        }}>
+          <p style={{
+            fontFamily: DISPLAY, fontWeight: 800, fontSize: 26,
+            color: C.text, margin: 0, lineHeight: 1,
+            textTransform: "uppercase", letterSpacing: "0.03em",
+            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+            flex: 1, minWidth: 0,
+          }}>
+            {product.name}
+          </p>
+          {/* Precio vivo */}
+          <div style={{
+            background: C.accentBg,
+            border: `2px solid ${C.accent}`,
+            borderRadius: 10, padding: "7px 16px",
+            fontFamily: DISPLAY, fontWeight: 800, fontSize: 22,
+            color: C.accent, letterSpacing: "0.04em", flexShrink: 0,
+          }}>
+            {fmtEur(unitPrice)}
           </div>
           <button
-            type="button"
-            style={m.closeBtn}
             onClick={onClose}
-            aria-label="Cerrar"
+            style={{
+              width: 36, height: 36, borderRadius: 8, flexShrink: 0,
+              background: C.surface, border: `1px solid ${C.border}`,
+              color: C.textSub, cursor: "pointer",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              fontFamily: BODY, fontSize: 20, lineHeight: 1, fontWeight: 400,
+            }}
           >
-            ✕
+            ×
           </button>
         </div>
 
-        {/* ── Body (scrollable) ── */}
-        <div style={m.body}>
+        {/* ══ BODY ══ */}
+        <div style={{
+          flex: 1, overflowY: "auto",
+          padding: "14px 18px 12px",
+          display: "flex", flexDirection: "column", gap: 12,
+        }}>
+
           {loading && (
-            <div style={m.centeredMsg}>Cargando opciones...</div>
+            <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", minHeight: 120 }}>
+              <p style={{ color: C.textSub, fontSize: 14, fontFamily: BODY }}>Cargando…</p>
+            </div>
           )}
 
           {loadError && (
-            <div style={m.errorBox}>{loadError}</div>
+            <div style={{ background: C.errorBg, borderRadius: 10, padding: "12px 16px", color: C.error, fontSize: 14 }}>
+              {loadError}
+            </div>
           )}
 
           {!loading && !loadError && groups.length === 0 && (
-            <div style={m.centeredMsg}>Sin opciones configuradas.</div>
+            <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", minHeight: 120 }}>
+              <p style={{ color: C.textSub, fontSize: 14 }}>Sin opciones para este producto</p>
+            </div>
           )}
 
-          {/* Modifier groups */}
-          {!loading &&
-            !loadError &&
-            groups.map((group) => {
-              const options = optionsByGroup[group.id] ?? [];
-              const selectedIds = selected[group.id] ?? [];
-              const isRadio = group.max_select === 1;
-              const error = attempted ? groupErrors[group.id] : null;
+          {/* ── Grupos de modificadores ── */}
+          {!loading && !loadError && groups.map(group => {
+            const opts     = optsByGroup[group.id] ?? [];
+            const selIds   = selected[group.id] ?? [];
+            const atMax    = selIds.length >= group.max_select;
+            const err      = attempted ? groupErrors[group.id] : null;
+            const required = group.min_select > 0;
+            const selCount = selIds.length;
+            const twoCol   = opts.length > 3;
 
-              const sublabel = isRadio
-                ? group.min_select > 0
-                  ? "Obligatorio · Elige 1"
-                  : "Opcional · Elige 1"
-                : group.min_select > 0
-                ? `Obligatorio · ${group.min_select}–${group.max_select} opciones`
-                : `Opcional · máx ${group.max_select}`;
+            return (
+              <div key={group.id} style={{
+                borderRadius: 12,
+                border: `1.5px solid ${err ? C.error + "90" : C.border}`,
+                overflow: "hidden",
+                flexShrink: 0,
+              }}>
+                {/* Cabecera del grupo */}
+                <div style={{
+                  display: "flex", alignItems: "center",
+                  padding: "9px 14px",
+                  background: C.bg,
+                  borderBottom: `1px solid ${C.border}`,
+                  gap: 10,
+                }}>
+                  <span style={{
+                    fontFamily: DISPLAY, fontWeight: 700, fontSize: 14,
+                    color: C.text, textTransform: "uppercase", letterSpacing: "0.1em",
+                    flex: 1,
+                  }}>
+                    {group.name}
+                  </span>
 
-              return (
-                <div key={group.id} style={m.groupCard}>
-                  {/* Group header */}
-                  <div style={m.groupHeader}>
-                    <div style={m.groupName}>{group.name}</div>
-                    <div style={m.groupSublabel}>{sublabel}</div>
-                  </div>
+                  {/* Obligatorio / Opcional */}
+                  <span style={{
+                    fontSize: 10, fontWeight: 700, fontFamily: BODY,
+                    textTransform: "uppercase", letterSpacing: "0.08em",
+                    padding: "3px 8px", borderRadius: 20,
+                    background: required ? `${C.accent}20` : `${C.textMuted}40`,
+                    color: required ? C.accent : C.textSub,
+                    border: `1px solid ${required ? C.accent + "45" : C.border}`,
+                  }}>
+                    {required ? "Obligatorio" : "Opcional"}
+                  </span>
 
-                  {/* Options */}
-                  <div style={m.optionsList}>
-                    {options.map((opt) => {
-                      const isSelected = selectedIds.includes(opt.id);
-                      const isAtMax =
-                        !isRadio &&
-                        !isSelected &&
-                        selectedIds.length >= group.max_select;
+                  {/* Contador X/max — solo cuando max > 1 */}
+                  {group.max_select > 1 && (
+                    <div style={{
+                      display: "flex", alignItems: "center", gap: 3,
+                      background: atMax ? `${C.accent}22` : C.surface,
+                      border: `1px solid ${atMax ? C.accent + "60" : C.border}`,
+                      borderRadius: 8, padding: "2px 9px",
+                    }}>
+                      <span style={{
+                        fontFamily: DISPLAY, fontWeight: 700, fontSize: 14,
+                        color: atMax ? C.accent : C.textSub, letterSpacing: "0.04em",
+                      }}>
+                        {selCount}<span style={{ color: C.textMuted }}>/{group.max_select}</span>
+                      </span>
+                    </div>
+                  )}
 
-                      return (
-                        <button
-                          key={opt.id}
-                          type="button"
-                          disabled={isAtMax}
-                          onClick={() => toggleOption(group, opt.id)}
-                          style={{
-                            ...m.optionBtn,
-                            ...(isSelected ? m.optionBtnSelected : {}),
-                            opacity: isAtMax ? 0.38 : 1,
-                          }}
-                        >
-                          {/* Indicator */}
-                          <span
-                            style={
-                              isSelected ? m.indicatorOn : m.indicatorOff
-                            }
-                          >
-                            {isRadio
-                              ? isSelected
-                                ? "●"
-                                : "○"
-                              : isSelected
-                              ? "✓"
-                              : "□"}
-                          </span>
-
-                          <span style={m.optionName}>{opt.name}</span>
-
-                          <span style={m.optionPrice}>
-                            {Number(opt.price) === 0
-                              ? "Gratis"
-                              : `+${fmtEur(Number(opt.price))}`}
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
-
-                  {/* Inline validation error (only after attempt) */}
-                  {error && <div style={m.groupError}>{error}</div>}
+                  {err && (
+                    <span style={{ fontSize: 11, color: C.error, fontWeight: 600, fontFamily: BODY }}>
+                      ↑ {err}
+                    </span>
+                  )}
                 </div>
-              );
-            })}
 
-          {/* Notes */}
-          {!loading && !loadError && (
-            <div style={m.groupCard}>
-              <div style={m.groupHeader}>
-                <div style={m.groupName}>Notas</div>
-                <div style={m.groupSublabel}>Opcional</div>
+                {/* Opciones */}
+                <div style={{
+                  display: "grid",
+                  gridTemplateColumns: twoCol ? "1fr 1fr" : "1fr",
+                  gap: 1,
+                  background: C.border,
+                }}>
+                  {opts.map(opt => {
+                    const isOn    = selIds.includes(opt.id);
+                    const blocked = !isOn && atMax && group.max_select !== 1;
+                    const price   = +opt.price;
+
+                    return (
+                      <button
+                        key={opt.id}
+                        type="button"
+                        disabled={blocked}
+                        onClick={() => toggle(group, opt.id)}
+                        style={{
+                          display: "flex", alignItems: "center", justifyContent: "space-between",
+                          padding: "0 16px",
+                          minHeight: 52,
+                          background: isOn ? C.accent : C.surface,
+                          cursor: blocked ? "not-allowed" : "pointer",
+                          border: "none",
+                          opacity: blocked ? 0.3 : 1,
+                          transition: "background 0.1s",
+                          gap: 12,
+                          userSelect: "none",
+                        }}
+                      >
+                        {/* Indicador + nombre */}
+                        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                          <div style={{
+                            width: 24, height: 24, borderRadius: "50%", flexShrink: 0,
+                            display: "flex", alignItems: "center", justifyContent: "center",
+                            background: isOn ? "rgba(0,0,0,0.25)" : C.surfaceHi,
+                            border: `2px solid ${isOn ? "rgba(0,0,0,0.2)" : C.borderHi}`,
+                          }}>
+                            {isOn && <Check size={13} color={C.accent} strokeWidth={3.5} />}
+                          </div>
+                          <span style={{
+                            fontFamily: BODY, fontWeight: isOn ? 600 : 400, fontSize: 15,
+                            color: isOn ? C.accentText : C.text,
+                            lineHeight: 1.2,
+                          }}>
+                            {opt.name}
+                          </span>
+                        </div>
+                        {/* Precio */}
+                        {price > 0 && (
+                          <span style={{
+                            fontFamily: DISPLAY, fontWeight: 700, fontSize: 14,
+                            color: isOn ? "rgba(0,0,0,0.55)" : C.textSub,
+                            letterSpacing: "0.02em", flexShrink: 0,
+                          }}>
+                            +{fmtEur(price)}
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
-              <textarea
-                rows={2}
-                placeholder="Notas para cocina..."
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                style={m.notesInput}
-              />
+            );
+          })}
+
+          {/* ── Notas (colapsadas por defecto) ── */}
+          {!loading && !loadError && (
+            <div style={{ flexShrink: 0 }}>
+              <button
+                type="button"
+                onClick={() => setNotesOpen(o => !o)}
+                style={{
+                  display: "flex", alignItems: "center", gap: 8,
+                  background: "transparent", border: "none", cursor: "pointer",
+                  color: notesOpen ? C.textSub : C.textMuted,
+                  fontFamily: BODY, fontSize: 13, fontWeight: 500,
+                  padding: "6px 0",
+                  transition: "color 0.15s",
+                }}
+              >
+                <MessageSquare size={14} />
+                <span>{notesOpen ? "Ocultar nota de cocina" : "Añadir nota de cocina"}</span>
+                <ChevronDown
+                  size={13}
+                  style={{ transition: "transform 0.2s", transform: notesOpen ? "rotate(180deg)" : "rotate(0deg)" }}
+                />
+              </button>
+              {notesOpen && (
+                <textarea
+                  autoFocus
+                  value={notes}
+                  onChange={e => setNotes(e.target.value)}
+                  placeholder="Sin cebolla, más picante, alérgico a…"
+                  rows={2}
+                  style={{
+                    marginTop: 6,
+                    width: "100%", boxSizing: "border-box",
+                    background: C.bg, border: `1.5px solid ${C.borderHi}`,
+                    borderRadius: 10, padding: "10px 14px",
+                    color: C.text, fontSize: 14, fontFamily: BODY, lineHeight: 1.5,
+                    resize: "none", outline: "none",
+                  }}
+                />
+              )}
             </div>
           )}
         </div>
 
-        {/* ── Footer ── */}
-        <div style={m.footer}>
-          {/* Qty selector */}
-          <div style={m.qtyRow}>
-            <span style={m.qtyLabel}>Cantidad</span>
-            <div style={m.qtyCtrl}>
-              <button
-                type="button"
-                style={m.qtyBtn}
-                onClick={() => setQty((q) => Math.max(1, q - 1))}
-              >
-                −
-              </button>
-              <span style={m.qtyVal}>{qty}</span>
-              <button
-                type="button"
-                style={m.qtyBtn}
-                onClick={() => setQty((q) => Math.min(10, q + 1))}
-              >
-                +
-              </button>
-            </div>
-          </div>
-
-          {/* Action buttons */}
-          <div style={m.actions}>
-            <button type="button" style={m.cancelBtn} onClick={onClose}>
-              Cancelar
-            </button>
+        {/* ══ FOOTER ══ */}
+        <div style={{
+          display: "flex", alignItems: "stretch",
+          borderTop: `2px solid ${C.border}`,
+          background: C.bg,
+          flexShrink: 0,
+          height: 70,
+        }}>
+          {/* Cantidad */}
+          <div style={{
+            display: "flex", alignItems: "center",
+            borderRight: `1px solid ${C.border}`,
+            flexShrink: 0,
+          }}>
             <button
               type="button"
-              style={isValid || !attempted ? m.confirmBtn : m.confirmBtnInvalid}
-              onClick={handleConfirm}
+              onClick={() => setQty(q => Math.max(1, q - 1))}
+              style={{
+                width: 56, height: "100%",
+                cursor: qty <= 1 ? "not-allowed" : "pointer",
+                background: "transparent", border: "none",
+                color: qty <= 1 ? C.textMuted : C.textSub,
+                display: "flex", alignItems: "center", justifyContent: "center",
+              }}
             >
-              Añadir{qty > 1 ? ` ×${qty}` : ""} · {fmtEur(unitPrice * qty)}
+              <Minus size={19} strokeWidth={2.5} />
+            </button>
+            <span style={{
+              width: 38, textAlign: "center",
+              fontFamily: DISPLAY, fontWeight: 800, fontSize: 26,
+              color: C.text, letterSpacing: "0.02em",
+            }}>
+              {qty}
+            </span>
+            <button
+              type="button"
+              onClick={() => setQty(q => Math.min(20, q + 1))}
+              style={{
+                width: 56, height: "100%", cursor: "pointer",
+                background: "transparent", border: "none",
+                color: C.textSub,
+                display: "flex", alignItems: "center", justifyContent: "center",
+              }}
+            >
+              <Plus size={19} strokeWidth={2.5} />
             </button>
           </div>
+
+          {/* Cancelar */}
+          <button
+            type="button"
+            onClick={onClose}
+            style={{
+              width: 82, background: "transparent", border: "none",
+              borderRight: `1px solid ${C.border}`,
+              color: C.textSub, fontSize: 13, fontFamily: BODY, fontWeight: 500,
+              cursor: "pointer", flexShrink: 0,
+            }}
+          >
+            Cancelar
+          </button>
+
+          {/* Añadir */}
+          <button
+            type="button"
+            onClick={handleConfirm}
+            style={{
+              flex: 1,
+              display: "flex", alignItems: "center", justifyContent: "center",
+              gap: 10, border: "none", cursor: "pointer",
+              background: attempted && !isValid ? C.surfaceHi : C.accent,
+              color: attempted && !isValid ? C.textMuted : C.accentText,
+              transition: "background 0.12s, color 0.12s",
+            }}
+          >
+            <ShoppingCart size={20} strokeWidth={2.5} />
+            <span style={{ fontFamily: DISPLAY, fontWeight: 800, fontSize: 21, letterSpacing: "0.06em" }}>
+              AÑADIR
+            </span>
+            <span style={{ fontFamily: DISPLAY, fontWeight: 700, fontSize: 21, opacity: 0.85 }}>
+              · {fmtEur(unitPrice * qty)}
+            </span>
+          </button>
         </div>
       </div>
     </div>
   );
 }
-
-// ─── Design tokens ────────────────────────────────────────────────────────────
-
-const G = "#4ade80";
-const BG = "#0f172a";
-const PANEL = "#1e293b";
-const PANEL2 = "#263555";
-const BORDER = "#334155";
-const MUTED = "#64748b";
-const TEXT = "#f1f5f9";
-const SEC = "#94a3b8";
-const ERR = "#f87171";
-
-// ─── Styles ───────────────────────────────────────────────────────────────────
-
-const m: Record<string, CSSProperties> = {
-  backdrop: {
-    position: "fixed",
-    inset: 0,
-    background: "rgba(0,0,0,0.72)",
-    zIndex: 1100,
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    padding: 16,
-  },
-
-  modal: {
-    width: "min(540px, 100%)",
-    maxHeight: "90dvh",
-    display: "flex",
-    flexDirection: "column",
-    background: PANEL,
-    borderRadius: 16,
-    border: `1px solid ${BORDER}`,
-    boxShadow: "0 24px 60px rgba(0,0,0,0.6)",
-    overflow: "hidden",
-    fontFamily: "system-ui, -apple-system, sans-serif",
-    color: TEXT,
-  },
-
-  // Header
-  header: {
-    display: "flex",
-    alignItems: "flex-start",
-    gap: 12,
-    padding: "16px 18px",
-    borderBottom: `1px solid ${BORDER}`,
-    flexShrink: 0,
-  },
-  productName: {
-    fontSize: 18,
-    fontWeight: 800,
-    color: TEXT,
-    lineHeight: 1.2,
-  },
-  priceLine: {
-    marginTop: 4,
-    fontSize: 13,
-    color: SEC,
-  },
-  closeBtn: {
-    border: `1px solid ${BORDER}`,
-    background: "transparent",
-    color: SEC,
-    borderRadius: 8,
-    width: 36,
-    height: 36,
-    cursor: "pointer",
-    fontSize: 14,
-    flexShrink: 0,
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-
-  // Body
-  body: {
-    flex: 1,
-    overflowY: "auto",
-    padding: "12px 14px",
-    display: "flex",
-    flexDirection: "column",
-    gap: 10,
-  },
-  centeredMsg: {
-    padding: "32px 0",
-    textAlign: "center",
-    color: MUTED,
-    fontSize: 14,
-  },
-  errorBox: {
-    padding: "10px 14px",
-    borderRadius: 8,
-    background: "rgba(248,113,113,0.10)",
-    border: `1px solid ${ERR}`,
-    color: ERR,
-    fontSize: 13,
-  },
-
-  // Modifier group card
-  groupCard: {
-    border: `1px solid ${BORDER}`,
-    borderRadius: 12,
-    overflow: "hidden",
-  },
-  groupHeader: {
-    padding: "10px 14px",
-    background: BG,
-    borderBottom: `1px solid ${BORDER}`,
-  },
-  groupName: {
-    fontSize: 14,
-    fontWeight: 700,
-    color: TEXT,
-  },
-  groupSublabel: {
-    marginTop: 2,
-    fontSize: 11,
-    fontWeight: 600,
-    textTransform: "uppercase",
-    letterSpacing: "0.07em",
-    color: MUTED,
-  },
-  groupError: {
-    padding: "7px 14px",
-    fontSize: 12,
-    fontWeight: 600,
-    color: ERR,
-    background: "rgba(248,113,113,0.07)",
-    borderTop: `1px solid rgba(248,113,113,0.20)`,
-  },
-
-  // Options list
-  optionsList: {
-    display: "flex",
-    flexDirection: "column",
-    gap: 0,
-  },
-  optionBtn: {
-    display: "flex",
-    alignItems: "center",
-    gap: 12,
-    padding: "13px 14px",
-    border: "none",
-    borderBottom: `1px solid rgba(51,65,85,0.5)`,
-    background: PANEL,
-    color: TEXT,
-    cursor: "pointer",
-    fontSize: 14,
-    textAlign: "left",
-    minHeight: 52,
-    transition: "background 0.1s",
-  },
-  optionBtnSelected: {
-    background: "rgba(74,222,128,0.09)",
-  },
-
-  // Radio/checkbox indicator
-  indicatorOff: {
-    fontSize: 17,
-    color: BORDER,
-    flexShrink: 0,
-    width: 20,
-    textAlign: "center",
-  },
-  indicatorOn: {
-    fontSize: 17,
-    color: G,
-    flexShrink: 0,
-    width: 20,
-    textAlign: "center",
-  },
-  optionName: {
-    flex: 1,
-    fontWeight: 500,
-    color: TEXT,
-  },
-  optionPrice: {
-    fontSize: 13,
-    fontWeight: 700,
-    color: SEC,
-    flexShrink: 0,
-  },
-
-  // Notes textarea
-  notesInput: {
-    width: "100%",
-    padding: "12px 14px",
-    border: "none",
-    background: PANEL,
-    color: TEXT,
-    fontSize: 14,
-    resize: "none",
-    outline: "none",
-    fontFamily: "inherit",
-    boxSizing: "border-box",
-  },
-
-  // Footer
-  footer: {
-    flexShrink: 0,
-    borderTop: `1px solid ${BORDER}`,
-    padding: "12px 14px",
-    display: "flex",
-    flexDirection: "column",
-    gap: 10,
-    background: BG,
-  },
-
-  // Qty row
-  qtyRow: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  qtyLabel: {
-    fontSize: 13,
-    fontWeight: 700,
-    textTransform: "uppercase",
-    letterSpacing: "0.07em",
-    color: MUTED,
-  },
-  qtyCtrl: {
-    display: "flex",
-    alignItems: "center",
-    border: `1px solid ${BORDER}`,
-    borderRadius: 10,
-    overflow: "hidden",
-  },
-  qtyBtn: {
-    border: "none",
-    background: PANEL2,
-    color: TEXT,
-    cursor: "pointer",
-    fontSize: 20,
-    width: 44,
-    height: 44,
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    fontWeight: 700,
-    minHeight: 44,
-  },
-  qtyVal: {
-    fontSize: 16,
-    fontWeight: 800,
-    color: TEXT,
-    minWidth: 40,
-    textAlign: "center",
-  },
-
-  // Action buttons
-  actions: {
-    display: "flex",
-    gap: 10,
-  },
-  cancelBtn: {
-    flex: "0 0 auto",
-    padding: "14px 18px",
-    borderRadius: 10,
-    border: `1px solid ${BORDER}`,
-    background: "transparent",
-    color: SEC,
-    cursor: "pointer",
-    fontSize: 14,
-    fontWeight: 600,
-    minHeight: 52,
-  },
-  confirmBtn: {
-    flex: 1,
-    padding: "14px 18px",
-    borderRadius: 10,
-    border: "none",
-    background: G,
-    color: "#052e16",
-    cursor: "pointer",
-    fontSize: 15,
-    fontWeight: 800,
-    minHeight: 52,
-    letterSpacing: "0.04em",
-  },
-  confirmBtnInvalid: {
-    flex: 1,
-    padding: "14px 18px",
-    borderRadius: 10,
-    border: "none",
-    background: "#1a2540",
-    color: BORDER,
-    cursor: "not-allowed",
-    fontSize: 15,
-    fontWeight: 800,
-    minHeight: 52,
-    letterSpacing: "0.04em",
-  },
-};

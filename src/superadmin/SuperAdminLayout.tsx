@@ -73,7 +73,7 @@ export default function SuperAdminLayout() {
 
       <nav style={{ display: "grid", gap: 6, alignContent: "start" }}>
         {navItems.map((item) => (
-          <NavLink key={item.to} to={item.to} style={linkStyle} end={item.end}>
+          <NavLink key={item.to} to={item.to} className="ui-nav-item" style={linkStyle} end={item.end}>
             <span
               aria-hidden
               style={{
@@ -94,7 +94,7 @@ export default function SuperAdminLayout() {
   );
 
   return (
-    <div style={{ minHeight: "100vh", background: "#f8fafc", position: "relative" }}>
+    <div className="superadmin-shell" style={{ minHeight: "100vh", background: "#f8fafc", position: "relative" }}>
       {!isMobile ? (
         <aside
           style={{
@@ -218,7 +218,9 @@ export default function SuperAdminLayout() {
           </div>
         </header>
 
-        <Outlet />
+        <div key={location.pathname} className="route-fade-slide">
+          <Outlet />
+        </div>
       </main>
     </div>
   );

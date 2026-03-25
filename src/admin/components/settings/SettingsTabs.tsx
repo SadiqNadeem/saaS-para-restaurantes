@@ -2,6 +2,7 @@ import type { CSSProperties } from "react";
 
 export type SettingsTabId =
   | "general"
+  | "modos"
   | "delivery"
   | "payments"
   | "hours"

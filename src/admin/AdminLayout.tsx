@@ -11,6 +11,8 @@ import { useRestaurantFeatures } from "./features/useRestaurantFeatures";
 import { SIDEBAR_GROUPS, SIDEBAR_ITEMS } from "./config/sidebarConfig";
 import type { SidebarItemConfig } from "./config/sidebarConfig";
 import { SupportChatWidget } from "./components/SupportChat/SupportChatWidget";
+import { useOrderNotifications } from "./hooks/useOrderNotifications";
+import { OnboardingBanner } from "./components/OnboardingBanner";
 
 const SIDEBAR_FULL = 252;
 const SIDEBAR_COLLAPSED = 64;
@@ -89,6 +91,7 @@ function SidebarItemLink({
     <NavLink
       to={to}
       end={end}
+      className="ui-nav-item"
       title={collapsed ? label : undefined}
       onClick={() => {
         if (import.meta.env.DEV) {
@@ -127,28 +130,30 @@ function SidebarItemLink({
     >
       {({ isActive }) => (
         <>
-          <span
-            style={{
-              width: ICON_BOX_SIZE,
-              height: ICON_BOX_SIZE,
-              display: "inline-flex",
-              alignItems: "center",
-              justifyContent: "center",
-              borderRadius: 8,
-              background: isActive
-                ? "rgba(37,99,235,0.14)"
-                : isHovered
-                  ? "rgba(255,255,255,0.18)"
-                  : "rgba(255,255,255,0.12)",
-              fontSize: ICON_FONT_SIZE,
-              flexShrink: 0,
-              fontStyle: "normal",
-              color: "inherit",
-              transition: "background 0.18s ease",
-            }}
-          >
-            {icon}
-          </span>
+          {collapsed && (
+            <span
+              style={{
+                width: ICON_BOX_SIZE,
+                height: ICON_BOX_SIZE,
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                borderRadius: 8,
+                background: isActive
+                  ? "rgba(37,99,235,0.14)"
+                  : isHovered
+                    ? "rgba(255,255,255,0.18)"
+                    : "rgba(255,255,255,0.12)",
+                fontSize: ICON_FONT_SIZE,
+                flexShrink: 0,
+                fontStyle: "normal",
+                color: "inherit",
+                transition: "background 0.18s ease",
+              }}
+            >
+              {icon}
+            </span>
+          )}
           {!collapsed && <span>{label}</span>}
         </>
       )}
@@ -171,6 +176,7 @@ function SidebarExternalLink({
   return (
     <a
       href={href}
+      className="ui-nav-item"
       target="_blank"
       rel="noopener noreferrer"
       title={collapsed ? label : undefined}
@@ -186,23 +192,25 @@ function SidebarExternalLink({
         ...(isHovered ? hoverNavItem : { color: "rgba(255,255,255,0.82)" }),
       }}
     >
-      <span
-        style={{
-          width: ICON_BOX_SIZE,
-          height: ICON_BOX_SIZE,
-          display: "inline-flex",
-          alignItems: "center",
-          justifyContent: "center",
-          borderRadius: 8,
-          background: isHovered ? "rgba(255,255,255,0.18)" : "rgba(255,255,255,0.12)",
-          fontSize: ICON_FONT_SIZE,
-          flexShrink: 0,
-          color: "inherit",
-          transition: "background 0.18s ease",
-        }}
-      >
-        {icon}
-      </span>
+      {collapsed && (
+        <span
+          style={{
+            width: ICON_BOX_SIZE,
+            height: ICON_BOX_SIZE,
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            borderRadius: 8,
+            background: isHovered ? "rgba(255,255,255,0.18)" : "rgba(255,255,255,0.12)",
+            fontSize: ICON_FONT_SIZE,
+            flexShrink: 0,
+            color: "inherit",
+            transition: "background 0.18s ease",
+          }}
+        >
+          {icon}
+        </span>
+      )}
       {!collapsed && <span>{label}</span>}
     </a>
   );
@@ -309,9 +317,6 @@ function SidebarGroup({
           marginBottom: 2,
         }}
       >
-        <span style={{ fontSize: 13, lineHeight: "1", opacity: 0.95 }}>
-          {group.icon}
-        </span>
         <span style={{ flex: 1, textAlign: "left" }}>{group.label}</span>
         <ChevronDown
           size={13}
@@ -385,6 +390,14 @@ function AdminLayout() {
   );
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
+
+  // New-order notifications: badge in tab title + browser Notification
+  const { unseenCount, resetBadge } = useOrderNotifications(restaurantId);
+  useEffect(() => {
+    if (location.pathname.includes("/orders")) {
+      resetBadge();
+    }
+  }, [location.pathname, resetBadge]);
 
   // Diagnostics error banner
   const BANNER_KEY = `diag_banner_dismissed_${restaurantId}`;
@@ -660,7 +673,7 @@ function AdminLayout() {
           <SidebarExternalLink
             href={menuPath}
             label="Ver menú público"
-            icon=""
+            icon="↗"
             collapsed={isCollapsed}
           />
 
@@ -728,6 +741,7 @@ function AdminLayout() {
 
   return (
     <div
+      className="admin-shell"
       style={{
         minHeight: "100vh",
         background: "var(--admin-content-bg, #f8fafc)",
@@ -884,6 +898,7 @@ function AdminLayout() {
               </select>
             ) : null}
 
+            {/* OCULTO: botón "IA" del header — reactivar quitando el display:none
             <button
               type="button"
               onClick={() => {
@@ -903,7 +918,7 @@ function AdminLayout() {
                 fontWeight: 800,
                 fontSize: 16,
                 color: "#6b7280",
-                display: "flex",
+                display: "none",
                 alignItems: "center",
                 justifyContent: "center",
                 flexShrink: 0,
@@ -920,6 +935,7 @@ function AdminLayout() {
             >
               IA
             </button>
+            */}
 
             <button
               type="button"
@@ -1018,7 +1034,11 @@ function AdminLayout() {
           </div>
         ) : null}
 
-        <Outlet />
+        <OnboardingBanner />
+
+        <div key={location.pathname} className="route-fade-slide">
+          <Outlet />
+        </div>
       </main>
 
       {/* ── Mobile bottom nav (< 768px) ── */}
@@ -1046,7 +1066,32 @@ function AdminLayout() {
                 `admin-bottom-nav-item${isActive ? " active" : ""}`
               }
             >
-              <span className="admin-bottom-nav-icon">{item.icon}</span>
+              <span className="admin-bottom-nav-icon" style={{ position: "relative" }}>
+                {item.icon}
+                {item.to.endsWith("/orders") && unseenCount > 0 ? (
+                  <span
+                    style={{
+                      position: "absolute",
+                      top: -4,
+                      right: -6,
+                      minWidth: 16,
+                      height: 16,
+                      borderRadius: 999,
+                      background: "#ef4444",
+                      color: "#fff",
+                      fontSize: 10,
+                      fontWeight: 700,
+                      display: "inline-flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      padding: "0 3px",
+                      lineHeight: 1,
+                    }}
+                  >
+                    {unseenCount > 99 ? "99+" : unseenCount}
+                  </span>
+                ) : null}
+              </span>
               <span>{item.label}</span>
             </NavLink>
           ))}

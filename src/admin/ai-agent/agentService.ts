@@ -34,8 +34,7 @@ async function callEdgeFunction(
   restaurantId: string,
   maxTokens = 1024
 ): Promise<OAIResponse> {
-  const accessToken = await getValidAccessToken();
-  const firstAttempt = await invokeAgentWithToken(messages, restaurantId, maxTokens, accessToken);
+  const firstAttempt = await invokeAgent(messages, restaurantId, maxTokens);
 
   if (!firstAttempt.error) {
     if (!firstAttempt.data) throw new Error("Respuesta vacia del servidor");
@@ -65,8 +64,14 @@ async function callEdgeFunction(
     if (import.meta.env.DEV) {
       console.warn("[ai-agent] 401/expired token, retrying with refreshSession");
     }
-    const refreshedToken = await getValidAccessToken(true);
-    const retry = await invokeAgentWithToken(messages, restaurantId, maxTokens, refreshedToken);
+    const { data: { session }, error: refreshError } = await supabase.auth.refreshSession();
+    if (refreshError || !session) {
+      throw new Error("Tu sesión ha expirado. Inicia sesión de nuevo.");
+    }
+    const retry = await supabase.functions.invoke<OAIResponse>("ai-agent", {
+      body: { messages, tools: AGENT_TOOLS, restaurant_id: restaurantId, max_tokens: maxTokens },
+      headers: { Authorization: `Bearer ${session.access_token}` },
+    });
     if (!retry.error) {
       if (!retry.data) throw new Error("Respuesta vacia del servidor");
       if (import.meta.env.DEV) {
@@ -106,17 +111,14 @@ async function callEdgeFunction(
   throw new Error("El asistente no esta disponible en este momento. Intentalo de nuevo.");
 }
 
-async function invokeAgentWithToken(
+// El cliente Supabase incluye automaticamente el access_token de la sesion activa.
+// No usar setAuth() ni Authorization manual — en v2 mutan estado global y rompen el header.
+function invokeAgent(
   messages: ChatMessage[],
   restaurantId: string,
-  maxTokens: number,
-  accessToken: string
+  maxTokens: number
 ) {
-  supabase.functions.setAuth(accessToken);
   return supabase.functions.invoke<OAIResponse>("ai-agent", {
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-    },
     body: { messages, tools: AGENT_TOOLS, restaurant_id: restaurantId, max_tokens: maxTokens },
   });
 }
@@ -135,63 +137,6 @@ function isForbiddenError(combinedError: string): boolean {
   return combinedError.includes("403") || combinedError.includes("sin acceso") || combinedError.includes("forbidden");
 }
 
-async function getValidAccessToken(forceRefresh = false): Promise<string> {
-  const {
-    data: { session: currentSession },
-  } = await supabase.auth.getSession();
-  let token = currentSession?.access_token?.trim() ?? "";
-
-  if (import.meta.env.DEV) {
-    console.info("[ai-agent] session before send", {
-      hasSession: Boolean(currentSession),
-      hasToken: Boolean(token),
-      userId: currentSession?.user?.id ?? null,
-      expiresAt: currentSession?.expires_at ?? null,
-      forceRefresh,
-    });
-  }
-
-  if (forceRefresh || !token) {
-    const { data: refreshed, error: refreshError } = await supabase.auth.refreshSession();
-    if (refreshError && import.meta.env.DEV) {
-      console.error("[ai-agent] refreshSession failed", { reason: forceRefresh ? "forced" : "missing_token", refreshError });
-    }
-    token = refreshed.session?.access_token?.trim() ?? "";
-  }
-
-  if (!token) {
-    throw new Error("Tu sesión ha expirado. Vuelve a iniciar sesión.");
-  }
-
-  const { error: userError } = await supabase.auth.getUser(token);
-  if (!userError) {
-    return token;
-  }
-
-  const msg = (userError.message ?? "").toLowerCase();
-  const isJwtProblem = msg.includes("jwt") || msg.includes("token") || msg.includes("expired");
-  if (!isJwtProblem) {
-    return token;
-  }
-
-  const { data: refreshed, error: refreshError } = await supabase.auth.refreshSession();
-  if (refreshError && import.meta.env.DEV) {
-    console.error("[ai-agent] refreshSession failed (jwt invalid)", refreshError);
-  }
-
-  const refreshedToken = refreshed.session?.access_token?.trim() ?? "";
-  if (!refreshedToken) {
-    throw new Error("Tu sesión ha expirado. Vuelve a iniciar sesión.");
-  }
-
-  const { error: refreshedUserError } = await supabase.auth.getUser(refreshedToken);
-  if (refreshedUserError) {
-    if (import.meta.env.DEV) console.error("[ai-agent] getUser failed after refresh", refreshedUserError);
-    throw new Error("Tu sesión ha expirado. Vuelve a iniciar sesión.");
-  }
-
-  return refreshedToken;
-}
 
 async function extractInvokeErrorDetails(error: unknown): Promise<string> {
   const context = (error as { context?: unknown })?.context;

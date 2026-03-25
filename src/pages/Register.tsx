@@ -95,7 +95,12 @@ export default function Register() {
         return;
       }
       refresh();
-      navigate("/admin", { replace: true });
+      if (pendingResult.status === "created") {
+        const name = encodeURIComponent(pendingResult.restaurantName);
+        navigate(`/onboarding?restaurant=${pendingResult.slug}&name=${name}`, { replace: true });
+      } else {
+        navigate("/admin", { replace: true });
+      }
       return;
     }
 
@@ -130,11 +135,19 @@ export default function Register() {
   return (
     <PageShell>
       <Card>
-        <Link to="/" style={{ fontSize: 13, color: "#6b7280", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 4 }}>
-          {'<-'} Volver al inicio
-        </Link>
+        <a
+          href={(import.meta.env.VITE_LANDING_URL as string | undefined) ?? "/"}
+          style={{ fontSize: 13, color: "#6b7280", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 4 }}
+        >
+          ← Volver a la web
+        </a>
         <div style={s.header}>
-          <div style={s.logo}>Kebab</div>
+          <a
+            href={(import.meta.env.VITE_LANDING_URL as string | undefined) ?? "/"}
+            style={{ textDecoration: "none", color: "inherit" }}
+          >
+            <div style={s.logo}>Kebab</div>
+          </a>
           <h1 style={s.h1}>Crea tu restaurante</h1>
           <p style={s.subtitle}>Rellena los datos para empezar.</p>
           <p style={s.planBadge}>Plan: {selectedPlan.toUpperCase()}</p>

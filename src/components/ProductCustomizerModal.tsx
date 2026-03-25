@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 import { supabase } from "../lib/supabase";
+import { useAnimatedPresence } from "../hooks/useAnimatedPresence";
 
 type IngredientGroup = {
   id: string;
@@ -49,6 +50,7 @@ export default function ProductCustomizerModal({
   product,
   onConfirm,
 }: Props) {
+  const presence = useAnimatedPresence(open && Boolean(product), 220);
   const [groups, setGroups] = useState<IngredientGroup[]>([]);
   const [ingredientsByGroup, setIngredientsByGroup] = useState<
     Record<string, Ingredient[]>
@@ -178,11 +180,11 @@ export default function ProductCustomizerModal({
     });
   };
 
-  if (!open || !product) return null;
+  if (!presence.mounted || !product) return null;
 
   return (
-    <div style={styles.backdrop} onClick={onClose}>
-      <div style={styles.modal} onClick={(e) => e.stopPropagation()}>
+    <div className="ui-overlay" data-state={presence.visible ? "open" : "closed"} style={styles.backdrop} onClick={onClose}>
+      <div className="ui-modal-panel" data-state={presence.visible ? "open" : "closed"} style={styles.modal} onClick={(e) => e.stopPropagation()}>
         <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
           <div>
             <div style={{ fontSize: 18, fontWeight: 800 }}>{product.name}</div>

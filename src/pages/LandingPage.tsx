@@ -1,55 +1,29 @@
-import { Link } from "react-router-dom";
+import Navbar from "@/components/landing/Navbar";
+import HeroSection from "@/components/landing/HeroSection";
+import ProblemSection from "@/components/landing/ProblemSection";
+import FeaturesSection from "@/components/landing/FeaturesSection";
+import HowItWorksSection from "@/components/landing/HowItWorksSection";
+import DemoVideoSection from "@/components/landing/DemoVideoSection";
+import PricingSection from "@/components/landing/PricingSection";
+import CTASection from "@/components/landing/CTASection";
+import Footer from "@/components/landing/Footer";
+import WhatsAppButton from "@/components/landing/WhatsAppButton";
 
 export default function LandingPage() {
   return (
-    <div
-      style={{
-        minHeight: "100vh",
-        display: "grid",
-        placeItems: "center",
-        padding: 16,
-        background: "#f8fafc",
-      }}
-    >
-      <div style={{ textAlign: "center", display: "grid", gap: 20, maxWidth: 520 }}>
-        <h1 style={{ margin: 0, fontSize: 36, fontWeight: 700, color: "#111827" }}>
-          Bienvenido al SaaS de Restaurantes
-        </h1>
-        <p style={{ margin: 0, fontSize: 16, color: "#6b7280", lineHeight: 1.6 }}>
-          Gestiona tu restaurante, pedidos, menú y equipo desde un solo lugar.
-        </p>
-        <div style={{ display: "flex", gap: 12, justifyContent: "center", flexWrap: "wrap" }}>
-          <Link
-            to="/login"
-            style={{
-              padding: "12px 28px",
-              background: "#4ec580",
-              color: "#fff",
-              borderRadius: 8,
-              textDecoration: "none",
-              fontWeight: 600,
-              fontSize: 15,
-            }}
-          >
-            Iniciar sesión
-          </Link>
-          <Link
-            to="/register"
-            style={{
-              padding: "12px 28px",
-              border: "1px solid #e5e7eb",
-              background: "#fff",
-              borderRadius: 8,
-              textDecoration: "none",
-              color: "#111827",
-              fontWeight: 600,
-              fontSize: 15,
-            }}
-          >
-            Crear cuenta gratis
-          </Link>
-        </div>
-      </div>
+    <div className="min-h-screen bg-white">
+      <Navbar />
+      <main>
+        <HeroSection />
+        <ProblemSection />
+        <FeaturesSection />
+        <HowItWorksSection />
+        <DemoVideoSection />
+        <PricingSection />
+        <CTASection />
+      </main>
+      <Footer />
+      <WhatsAppButton />
     </div>
   );
 }

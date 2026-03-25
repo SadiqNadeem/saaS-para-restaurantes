@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import { supabase } from "../../../lib/supabase";
 import { useRestaurant } from "../../../restaurant/RestaurantContext";
+import { useAnimatedPresence } from "../../../hooks/useAnimatedPresence";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -41,11 +42,13 @@ const inputStyle: React.CSSProperties = {
 // ── Component ─────────────────────────────────────────────────────────────────
 
 type Props = {
+  open: boolean;
   onClose: () => void;
   onSuccess: () => void;
 };
 
-export function NewTicketModal({ onClose, onSuccess }: Props) {
+export function NewTicketModal({ open, onClose, onSuccess }: Props) {
+  const presence = useAnimatedPresence(open, 220);
   const { restaurantId } = useRestaurant();
 
   const [category, setCategory] = useState<TicketCategory>("pedidos");
@@ -132,8 +135,14 @@ export function NewTicketModal({ onClose, onSuccess }: Props) {
     onSuccess();
   };
 
+  if (!presence.mounted) {
+    return null;
+  }
+
   return (
     <div
+      className="ui-overlay"
+      data-state={presence.visible ? "open" : "closed"}
       role="presentation"
       onClick={onClose}
       style={{
@@ -148,6 +157,8 @@ export function NewTicketModal({ onClose, onSuccess }: Props) {
       }}
     >
       <div
+        className="ui-modal-panel"
+        data-state={presence.visible ? "open" : "closed"}
         role="dialog"
         aria-modal="true"
         aria-label="Nuevo ticket de soporte"

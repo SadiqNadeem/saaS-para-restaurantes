@@ -25,6 +25,7 @@ import { supabase } from "../../lib/supabase";
 import { useRestaurant } from "../../restaurant/RestaurantContext";
 import { prepareImageWebp } from "../../lib/images/prepareImageWebp";
 import { uploadProductImage } from "../../lib/images/uploadProductImage";
+import { useAnimatedValue } from "../../hooks/useAnimatedValue";
 
 type CategoryRow = {
   id: string;
@@ -40,6 +41,12 @@ type ModifierGroupRow = {
   sort_order: number | null;
 };
 
+type IngredientRow = {
+  id: string;
+  name: string;
+  is_available: boolean;
+};
+
 type ProductRow = {
   id: string;
   restaurant_id: string;
@@ -53,6 +60,7 @@ type ProductRow = {
   created_at: string | null;
   track_stock: boolean;
   stock_quantity: number;
+  is_upsell: boolean;
 };
 
 type Toast = {
@@ -74,6 +82,7 @@ type ProductDraft = {
   category_id: string;
   track_stock: boolean;
   stock_quantity: string;
+  is_upsell: boolean;
 };
 
 const EMPTY_DRAFT: ProductDraft = {
@@ -84,7 +93,55 @@ const EMPTY_DRAFT: ProductDraft = {
   category_id: "",
   track_stock: false,
   stock_quantity: "0",
+  is_upsell: false,
 };
+
+type ParsedRow = {
+  rowIndex: number;
+  name: string;
+  description: string;
+  price: number;
+  categoryName: string;
+  categoryId: string;
+  is_active: boolean;
+  is_upsell: boolean;
+  image_url: string;
+  errors: string[];
+};
+
+function escapeCsvField(value: string): string {
+  if (value.includes(";") || value.includes('"') || value.includes("\n")) {
+    return '"' + value.replace(/"/g, '""') + '"';
+  }
+  return value;
+}
+
+function parseBoolField(raw: string | undefined): boolean {
+  const v = (raw ?? "").trim().toLowerCase();
+  return v === "true" || v === "1" || v === "sí" || v === "si" || v === "yes";
+}
+
+function parseCsvLine(line: string): string[] {
+  const cols: string[] = [];
+  let cur = "";
+  let inQuote = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (inQuote) {
+      if (c === '"' && line[i + 1] === '"') { cur += '"'; i++; }
+      else if (c === '"') { inQuote = false; }
+      else { cur += c; }
+    } else if (c === '"') {
+      inQuote = true;
+    } else if (c === ";") {
+      cols.push(cur); cur = "";
+    } else {
+      cur += c;
+    }
+  }
+  cols.push(cur);
+  return cols;
+}
 
 type SortableProductCardProps = {
   row: ProductRow;
@@ -116,6 +173,7 @@ function SortableProductCard({
 
   return (
     <article
+      className="ui-list-item ui-soft-border"
       ref={setNodeRef}
       style={{
         transform: CSS.Transform.toString(transform),
@@ -180,6 +238,23 @@ function SortableProductCard({
               >
                 {row.is_active ? "Activo" : "Inactivo"}
               </span>
+              {!row.image_url && (
+                <span
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    padding: "3px 10px",
+                    borderRadius: 999,
+                    fontSize: 11,
+                    fontWeight: 700,
+                    border: "1px solid #fecaca",
+                    background: "#fef2f2",
+                    color: "#991b1b",
+                  }}
+                >
+                  Sin imagen
+                </span>
+              )}
             </div>
             <div style={{ marginTop: 4, color: "#0f172a", fontSize: 15, fontWeight: 600 }}>{row.price.toFixed(2)} EUR</div>
             {row.description ? (
@@ -315,7 +390,7 @@ function SortableProductCard({
 }
 
 export default function AdminProductsPage() {
-  const { restaurantId, adminPath } = useRestaurant();
+  const { restaurantId, adminPath, name: restaurantName } = useRestaurant();
   const { canManage } = useAdminMembership();
   const navigate = useNavigate();
   const sensors = useSensors(useSensor(PointerSensor));
@@ -325,6 +400,7 @@ export default function AdminProductsPage() {
   });
   const [categories, setCategories] = useState<CategoryRow[]>([]);
   const [modifierGroups, setModifierGroups] = useState<ModifierGroupRow[]>([]);
+  const [restaurantIngredients, setRestaurantIngredients] = useState<IngredientRow[]>([]);
   const [products, setProducts] = useState<ProductRow[]>([]);
   const [selectedCategoryId, setSelectedCategoryId] = useState<string>("");
   const [loading, setLoading] = useState(true);
@@ -335,12 +411,18 @@ export default function AdminProductsPage() {
   const [draft, setDraft] = useState<ProductDraft>(EMPTY_DRAFT);
   const [submittingModal, setSubmittingModal] = useState(false);
   const [selectedModifierGroupIds, setSelectedModifierGroupIds] = useState<string[]>([]);
+  const [selectedIngredientIds, setSelectedIngredientIds] = useState<string[]>([]);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [localImageUrl, setLocalImageUrl] = useState<string | null>(null);
+  const [imageError, setImageError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchFocused, setSearchFocused] = useState(false);
   const [categoryFocused, setCategoryFocused] = useState(false);
+  const animatedModal = useAnimatedValue(modal, 220);
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [importParsed, setImportParsed] = useState<ParsedRow[]>([]);
+  const [importProgress, setImportProgress] = useState<{ done: number; total: number } | null>(null);
 
   const pushToast = useCallback((type: Toast["type"], message: string) => {
     const id = Date.now() + Math.floor(Math.random() * 1000);
@@ -350,11 +432,133 @@ export default function AdminProductsPage() {
     }, 3200);
   }, []);
 
+  const handleExportCsv = () => {
+    const headers = ["name", "description", "price", "category", "is_active", "is_upsell", "image_url"];
+    const rows = products.map((p) => {
+      const catName = categories.find((c) => c.id === p.category_id)?.name ?? "";
+      return [
+        escapeCsvField(p.name),
+        escapeCsvField(p.description ?? ""),
+        p.price.toFixed(2),
+        escapeCsvField(catName),
+        p.is_active ? "true" : "false",
+        p.is_upsell ? "true" : "false",
+        escapeCsvField(p.image_url ?? ""),
+      ].join(";");
+    });
+    const csv = [headers.join(";"), ...rows].join("\n");
+    const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    const date = new Date().toISOString().slice(0, 10);
+    const safeName = (restaurantName ?? "menu").replace(/[^a-z0-9_\-]/gi, "_");
+    a.href = url;
+    a.download = `menu_${safeName}_${date}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleParseImportFile = (file: File) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const text = (e.target?.result as string) ?? "";
+      const lines = text.replace(/^\uFEFF/, "").split(/\r?\n/).filter((l) => l.trim() !== "");
+      if (lines.length < 2) {
+        setImportParsed([]);
+        return;
+      }
+      const headerCols = parseCsvLine(lines[0]).map((h) => h.trim().toLowerCase().replace(/"/g, ""));
+      const idx = {
+        name: headerCols.indexOf("name"),
+        description: headerCols.indexOf("description"),
+        price: headerCols.indexOf("price"),
+        category: headerCols.indexOf("category"),
+        is_active: headerCols.indexOf("is_active"),
+        is_upsell: headerCols.indexOf("is_upsell"),
+        image_url: headerCols.indexOf("image_url"),
+      };
+      const parsed: ParsedRow[] = [];
+      for (let i = 1; i < lines.length; i++) {
+        const cols = parseCsvLine(lines[i]);
+        const errors: string[] = [];
+        const rowName = idx.name >= 0 ? (cols[idx.name] ?? "").trim() : "";
+        if (!rowName) errors.push("Nombre vacío");
+        const priceRaw = idx.price >= 0 ? (cols[idx.price] ?? "").trim().replace(",", ".") : "";
+        const price = parseFloat(priceRaw);
+        if (!Number.isFinite(price) || price < 0) errors.push(`Precio inválido: "${priceRaw}"`);
+        const categoryName = idx.category >= 0 ? (cols[idx.category] ?? "").trim() : "";
+        if (!categoryName) errors.push("Categoría vacía");
+        const cat = categories.find((c) => c.name.toLowerCase() === categoryName.toLowerCase());
+        if (categoryName && !cat) errors.push(`Categoría no encontrada: "${categoryName}"`);
+        parsed.push({
+          rowIndex: i,
+          name: rowName,
+          description: idx.description >= 0 ? (cols[idx.description] ?? "").trim() : "",
+          price: Number.isFinite(price) ? price : 0,
+          categoryName,
+          categoryId: cat?.id ?? "",
+          is_active: parseBoolField(idx.is_active >= 0 ? cols[idx.is_active] : "true"),
+          is_upsell: parseBoolField(idx.is_upsell >= 0 ? cols[idx.is_upsell] : "false"),
+          image_url: idx.image_url >= 0 ? (cols[idx.image_url] ?? "").trim() : "",
+          errors,
+        });
+      }
+      setImportParsed(parsed);
+    };
+    reader.readAsText(file, "utf-8");
+  };
+
+  const handleConfirmImport = async () => {
+    const valid = importParsed.filter((r) => r.errors.length === 0);
+    if (valid.length === 0) return;
+    setImportProgress({ done: 0, total: valid.length });
+    let done = 0;
+    for (const row of valid) {
+      const { data: existing } = await supabase
+        .from("products")
+        .select("id")
+        .eq("restaurant_id", restaurantId)
+        .eq("name", row.name)
+        .maybeSingle();
+      if (existing?.id) {
+        await supabase.from("products").update({
+          price: row.price,
+          description: row.description || null,
+          category_id: row.categoryId,
+          is_active: row.is_active,
+          is_upsell: row.is_upsell,
+          image_url: row.image_url || null,
+        }).eq("id", existing.id).eq("restaurant_id", restaurantId);
+      } else {
+        await supabase.from("products").insert({
+          restaurant_id: restaurantId,
+          name: row.name,
+          price: row.price,
+          description: row.description || null,
+          category_id: row.categoryId,
+          is_active: row.is_active,
+          is_upsell: row.is_upsell,
+          image_url: row.image_url || null,
+          sort_order: 9999,
+          track_stock: false,
+          stock_quantity: 0,
+        });
+      }
+      done++;
+      setImportProgress({ done, total: valid.length });
+    }
+    await loadAll();
+    setShowImportModal(false);
+    setImportParsed([]);
+    setImportProgress(null);
+    pushToast("success", `${done} producto${done !== 1 ? "s" : ""} importado${done !== 1 ? "s" : ""}.`);
+  };
+
   const loadAll = useCallback(async () => {
     setLoading(true);
     setError(null);
 
-    const [categoriesResult, productsResult, modifierGroupsResult] = await Promise.all([
+    const [categoriesResult, productsResult, modifierGroupsResult, ingredientsResult] = await Promise.all([
       supabase
         .from("categories")
         .select("id, name, sort_order, is_active")
@@ -363,7 +567,7 @@ export default function AdminProductsPage() {
         .order("created_at", { ascending: true }),
       supabase
         .from("products")
-        .select("id, restaurant_id, category_id, name, price, description, image_url, sort_order, is_active, created_at, track_stock, stock_quantity")
+        .select("id, restaurant_id, category_id, name, price, description, image_url, sort_order, is_active, created_at, track_stock, stock_quantity, is_upsell")
         .eq("restaurant_id", restaurantId)
         .order("sort_order", { ascending: true })
         .order("created_at", { ascending: true }),
@@ -374,6 +578,12 @@ export default function AdminProductsPage() {
         .eq("is_active", true)
         .order("sort_order", { ascending: true })
         .order("created_at", { ascending: true }),
+      supabase
+        .from("ingredients")
+        .select("id, name, is_available")
+        .eq("restaurant_id", restaurantId)
+        .is("group_id", null)
+        .order("name", { ascending: true }),
     ]);
 
     if (categoriesResult.error) {
@@ -431,17 +641,22 @@ export default function AdminProductsPage() {
       sort_order: typeof item.sort_order === "number" ? item.sort_order : null,
     }));
 
+    const normalizedIngredients: IngredientRow[] = (ingredientsResult.data ?? []).map((item) => ({
+      id: String(item.id),
+      name: String(item.name ?? ""),
+      is_available: item.is_available !== false,
+    }));
+
     setCategories(normalizedCategories);
     setProducts(normalizedProducts);
     setModifierGroups(normalizedModifierGroups);
+    setRestaurantIngredients(normalizedIngredients);
 
-    if (!selectedCategoryId && normalizedCategories.length > 0) {
-      setSelectedCategoryId(normalizedCategories[0].id);
-    } else if (
+    if (
       selectedCategoryId &&
       !normalizedCategories.some((category) => category.id === selectedCategoryId)
     ) {
-      setSelectedCategoryId(normalizedCategories[0]?.id ?? "");
+      setSelectedCategoryId("");
     }
 
     setLoading(false);
@@ -453,7 +668,7 @@ export default function AdminProductsPage() {
 
   const productsInSelectedCategory = useMemo(() => {
     return products
-      .filter((product) => (product.category_id ?? "") === selectedCategoryId)
+      .filter((product) => !selectedCategoryId || (product.category_id ?? "") === selectedCategoryId)
       .sort((a, b) => {
         const aSort = typeof a.sort_order === "number" ? a.sort_order : Number.MAX_SAFE_INTEGER;
         const bSort = typeof b.sort_order === "number" ? b.sort_order : Number.MAX_SAFE_INTEGER;
@@ -470,18 +685,50 @@ export default function AdminProductsPage() {
   }, [products, searchQuery]);
 
   const productIds = useMemo(() => productsInSelectedCategory.map((product) => product.id), [productsInSelectedCategory]);
+
+  const categoryMap = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const cat of categories) map.set(cat.id, cat.name);
+    return map;
+  }, [categories]);
+
+  const productsByCategory = useMemo(() => {
+    if (selectedCategoryId) return null;
+    return categories
+      .map((cat) => ({
+        category: cat,
+        items: products
+          .filter((p) => p.category_id === cat.id)
+          .sort((a, b) => {
+            const aSort = typeof a.sort_order === "number" ? a.sort_order : Number.MAX_SAFE_INTEGER;
+            const bSort = typeof b.sort_order === "number" ? b.sort_order : Number.MAX_SAFE_INTEGER;
+            if (aSort !== bSort) return aSort - bSort;
+            return (a.created_at ?? "").localeCompare(b.created_at ?? "");
+          }),
+      }))
+      .filter((g) => g.items.length > 0);
+  }, [categories, products, selectedCategoryId]);
   const isBusy = reordering || submittingModal || Boolean(savingProductId);
 
   const resetImageState = () => {
     if (localImageUrl) URL.revokeObjectURL(localImageUrl);
     setImageFile(null);
     setLocalImageUrl(null);
+    setImageError(null);
   };
 
   const handleImageFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0] ?? null;
     if (localImageUrl) URL.revokeObjectURL(localImageUrl);
+    setImageError(null);
     if (!file) {
+      setImageFile(null);
+      setLocalImageUrl(null);
+      return;
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      setImageError("La imagen no puede superar 2 MB. Elige una imagen más pequeña.");
+      event.target.value = "";
       setImageFile(null);
       setLocalImageUrl(null);
       return;
@@ -493,9 +740,10 @@ export default function AdminProductsPage() {
   const openCreateModal = () => {
     setDraft({
       ...EMPTY_DRAFT,
-      category_id: selectedCategoryId,
+      category_id: selectedCategoryId || categories[0]?.id || "",
     });
     setSelectedModifierGroupIds([]);
+    setSelectedIngredientIds([]);
     resetImageState();
     setModal({ mode: "create" });
   };
@@ -509,21 +757,28 @@ export default function AdminProductsPage() {
       category_id: row.category_id ?? selectedCategoryId,
       track_stock: row.track_stock,
       stock_quantity: String(row.stock_quantity),
+      is_upsell: row.is_upsell,
     });
     setSelectedModifierGroupIds([]);
+    setSelectedIngredientIds([]);
     resetImageState();
 
-    const { data, error: bridgeError } = await supabase
-      .from("product_modifier_groups")
-      .select("modifier_group_id")
-      .eq("product_id", row.id);
+    const [modifierBridgeResult, ingredientBridgeResult] = await Promise.all([
+      supabase.from("product_modifier_groups").select("modifier_group_id").eq("product_id", row.id),
+      supabase.from("product_ingredients").select("ingredient_id").eq("product_id", row.id),
+    ]);
 
-    if (bridgeError) {
-      if (import.meta.env.DEV) console.error("[products] openEditModal product_modifier_groups", bridgeError);
+    if (modifierBridgeResult.error) {
+      if (import.meta.env.DEV) console.error("[products] openEditModal product_modifier_groups", modifierBridgeResult.error);
       pushToast("error", "No se pudieron cargar los modificadores.");
     } else {
-      const ids = (data ?? []).map((entry) => String(entry.modifier_group_id ?? "")).filter(Boolean);
+      const ids = (modifierBridgeResult.data ?? []).map((entry) => String(entry.modifier_group_id ?? "")).filter(Boolean);
       setSelectedModifierGroupIds(ids);
+    }
+
+    if (!ingredientBridgeResult.error) {
+      const ids = (ingredientBridgeResult.data ?? []).map((entry) => String(entry.ingredient_id ?? "")).filter(Boolean);
+      setSelectedIngredientIds(ids);
     }
 
     setModal({ mode: "edit", productId: row.id });
@@ -535,6 +790,7 @@ export default function AdminProductsPage() {
     setModal(null);
     setDraft(EMPTY_DRAFT);
     setSelectedModifierGroupIds([]);
+    setSelectedIngredientIds([]);
   };
 
   const updateDraft = <K extends keyof ProductDraft>(key: K, value: ProductDraft[K]) => {
@@ -544,6 +800,12 @@ export default function AdminProductsPage() {
   const toggleModifierSelection = (groupId: string) => {
     setSelectedModifierGroupIds((prev) =>
       prev.includes(groupId) ? prev.filter((id) => id !== groupId) : [...prev, groupId]
+    );
+  };
+
+  const toggleIngredientSelection = (ingredientId: string) => {
+    setSelectedIngredientIds((prev) =>
+      prev.includes(ingredientId) ? prev.filter((id) => id !== ingredientId) : [...prev, ingredientId]
     );
   };
 
@@ -576,6 +838,35 @@ export default function AdminProductsPage() {
       if (insertError) {
         if (import.meta.env.DEV) console.error("[products] sync insert product_modifier_groups", insertError);
         throw new Error("No se pudieron actualizar los modificadores.");
+      }
+    },
+    [restaurantId]
+  );
+
+  const syncProductIngredients = useCallback(
+    async (productId: string, ingredientIds: string[]) => {
+      const { error: deleteError } = await supabase
+        .from("product_ingredients")
+        .delete()
+        .eq("product_id", productId);
+
+      if (deleteError) {
+        if (import.meta.env.DEV) console.error("[products] sync delete product_ingredients", deleteError);
+        throw new Error("No se pudieron actualizar los ingredientes.");
+      }
+
+      if (ingredientIds.length === 0) return;
+
+      const rows = ingredientIds.map((ingredientId) => ({
+        restaurant_id: restaurantId,
+        product_id: productId,
+        ingredient_id: ingredientId,
+      }));
+
+      const { error: insertError } = await supabase.from("product_ingredients").insert(rows);
+      if (insertError) {
+        if (import.meta.env.DEV) console.error("[products] sync insert product_ingredients", insertError);
+        throw new Error("No se pudieron actualizar los ingredientes.");
       }
     },
     [restaurantId]
@@ -623,6 +914,7 @@ export default function AdminProductsPage() {
           is_active: true,
           track_stock: draft.track_stock,
           stock_quantity: draft.track_stock ? Math.max(0, parseInt(draft.stock_quantity, 10) || 0) : 0,
+          is_upsell: draft.is_upsell,
         })
         .select("id")
         .single();
@@ -657,6 +949,14 @@ export default function AdminProductsPage() {
           setSubmittingModal(false);
           return;
         }
+        try {
+          await syncProductIngredients(String(createdProduct.id), selectedIngredientIds);
+        } catch (syncError) {
+          if (import.meta.env.DEV) console.error("[products] create sync ingredients", syncError);
+          pushToast("error", "No se pudieron actualizar los ingredientes.");
+          setSubmittingModal(false);
+          return;
+        }
       }
 
       pushToast("success", "Producto creado.");
@@ -667,8 +967,14 @@ export default function AdminProductsPage() {
     }
 
     // Edit mode
+    const STORAGE_PREFIX = "https://ewxarutpvgelwdswjolz.supabase.co/storage/v1/object/public/product-images/";
     let finalImageUrl: string | null = draft.image_url.trim() || null;
     if (imageFile) {
+      // Delete old image from Storage if it lives in our bucket
+      if (draft.image_url && draft.image_url.startsWith(STORAGE_PREFIX)) {
+        const oldPath = draft.image_url.slice(STORAGE_PREFIX.length);
+        await supabase.storage.from("product-images").remove([oldPath]);
+      }
       try {
         const blob = await prepareImageWebp(imageFile);
         finalImageUrl = await uploadProductImage(supabase, restaurantId, modal.productId, blob);
@@ -689,6 +995,7 @@ export default function AdminProductsPage() {
         image_url: finalImageUrl,
         track_stock: draft.track_stock,
         stock_quantity: draft.track_stock ? Math.max(0, parseInt(draft.stock_quantity, 10) || 0) : 0,
+        is_upsell: draft.is_upsell,
       })
       .eq("restaurant_id", restaurantId)
       .eq("id", modal.productId);
@@ -704,6 +1011,15 @@ export default function AdminProductsPage() {
     } catch (syncError) {
       if (import.meta.env.DEV) console.error("[products] edit sync modifiers", syncError);
       pushToast("error", "No se pudieron actualizar los modificadores.");
+      setSubmittingModal(false);
+      return;
+    }
+
+    try {
+      await syncProductIngredients(modal.productId, selectedIngredientIds);
+    } catch (syncError) {
+      if (import.meta.env.DEV) console.error("[products] edit sync ingredients", syncError);
+      pushToast("error", "No se pudieron actualizar los ingredientes.");
       setSubmittingModal(false);
       return;
     }
@@ -876,12 +1192,48 @@ export default function AdminProductsPage() {
             </p>
           </div>
 
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <button
+              type="button"
+              onClick={handleExportCsv}
+              disabled={products.length === 0}
+              style={{
+                borderRadius: 10,
+                border: "1px solid #e2e8f0",
+                background: "#f8fafc",
+                color: "#374151",
+                padding: "8px 12px",
+                fontSize: 13,
+                fontWeight: 600,
+                cursor: products.length === 0 ? "not-allowed" : "pointer",
+                opacity: products.length === 0 ? 0.5 : 1,
+              }}
+            >
+              ↓ Exportar CSV
+            </button>
+            <button
+              type="button"
+              onClick={() => { setImportParsed([]); setImportProgress(null); setShowImportModal(true); }}
+              disabled={!canManage}
+              style={{
+                borderRadius: 10,
+                border: "1px solid #e2e8f0",
+                background: "#f8fafc",
+                color: "#374151",
+                padding: "8px 12px",
+                fontSize: 13,
+                fontWeight: 600,
+                cursor: !canManage ? "not-allowed" : "pointer",
+                opacity: !canManage ? 0.5 : 1,
+              }}
+            >
+              ↑ Importar CSV
+            </button>
             <button
               type="button"
               data-tour="new-product"
               onClick={openCreateModal}
-              disabled={!canManage || isBusy || !selectedCategoryId}
+              disabled={!canManage || isBusy}
               style={{
                 borderRadius: 12,
                 border: "1px solid #0f172a",
@@ -890,8 +1242,8 @@ export default function AdminProductsPage() {
                 padding: "10px 14px",
                 fontSize: 14,
                 fontWeight: 600,
-                cursor: !canManage || isBusy || !selectedCategoryId ? "not-allowed" : "pointer",
-                opacity: !canManage || isBusy || !selectedCategoryId ? 0.6 : 1,
+                cursor: !canManage || isBusy ? "not-allowed" : "pointer",
+                opacity: !canManage || isBusy ? 0.6 : 1,
                 boxShadow: "0 8px 20px rgba(15, 23, 42, 0.18)",
               }}
             >
@@ -1000,7 +1352,7 @@ export default function AdminProductsPage() {
               outline: "none",
             }}
           >
-            {categories.length === 0 ? <option value="">Sin categorias</option> : null}
+            <option value="">Todas las categorías</option>
             {categories.map((category) => (
               <option key={category.id} value={category.id}>
                 {category.name}
@@ -1055,19 +1407,28 @@ export default function AdminProductsPage() {
             <p style={{ margin: 0, fontSize: 13, color: "#6b7280" }}>
               {searchResults.length} resultado{searchResults.length !== 1 ? "s" : ""} para "{searchQuery}"
             </p>
-            {searchResults.map((product) => (
-              <SortableProductCard
-                key={product.id}
-                row={product}
-                disabled={!canManage || isBusy}
-                isSaving={savingProductId === product.id}
-                adminPath={adminPath}
-                onEdit={(row) => { void openEditModal(row); }}
-                onDelete={(row) => void deleteProduct(row)}
-                onToggle={(row) => void toggleActive(row)}
-                onManageModifiers={(row) => navigate(`${adminPath}/products/${row.id}/modifiers`)}
-              />
-            ))}
+            {searchResults.map((product) => {
+              const catName = categoryMap.get(product.category_id ?? "");
+              return (
+                <div key={product.id}>
+                  {catName ? (
+                    <p style={{ margin: "0 0 5px", fontSize: 11, fontWeight: 700, color: "#9ca3af", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                      {catName}
+                    </p>
+                  ) : null}
+                  <SortableProductCard
+                    row={product}
+                    disabled={!canManage || isBusy}
+                    isSaving={savingProductId === product.id}
+                    adminPath={adminPath}
+                    onEdit={(row) => { void openEditModal(row); }}
+                    onDelete={(row) => void deleteProduct(row)}
+                    onToggle={(row) => void toggleActive(row)}
+                    onManageModifiers={(row) => navigate(`${adminPath}/products/${row.id}/modifiers`)}
+                  />
+                </div>
+              );
+            })}
           </div>
         )
       ) : null}
@@ -1085,7 +1446,7 @@ export default function AdminProductsPage() {
         </div>
       ) : null}
 
-      {!loading && searchResults === null && categories.length > 0 && selectedCategoryId && productsInSelectedCategory.length === 0 ? (
+      {!loading && searchResults === null && categories.length > 0 && selectedCategoryId && productsInSelectedCategory.length === 0  ? (
         <div className="admin-card" style={{ minHeight: 280, display: "grid", alignItems: "center" }}>
           <AdminEmptyState
             icon=""
@@ -1097,6 +1458,58 @@ export default function AdminProductsPage() {
         </div>
       ) : null}
 
+      {/* All-categories grouped view */}
+      {!loading && searchResults === null && !selectedCategoryId && productsByCategory && productsByCategory.length > 0 ? (
+        <div style={{ display: "grid", gap: 20 }}>
+          {productsByCategory.map(({ category, items }) => (
+            <div key={category.id}>
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  padding: "10px 16px",
+                  background: "#f1f5f9",
+                  border: "1px solid #e2e8f0",
+                  borderRadius: 10,
+                  marginBottom: 10,
+                }}
+              >
+                <span style={{ fontWeight: 700, fontSize: 14, color: "#374151" }}>{category.name}</span>
+                <span
+                  style={{
+                    fontSize: 12,
+                    color: "#6b7280",
+                    background: "#e5e7eb",
+                    borderRadius: 999,
+                    padding: "2px 10px",
+                    fontWeight: 600,
+                  }}
+                >
+                  {items.length} producto{items.length !== 1 ? "s" : ""}
+                </span>
+              </div>
+              <div style={{ display: "grid", gap: 10 }}>
+                {items.map((product) => (
+                  <SortableProductCard
+                    key={product.id}
+                    row={product}
+                    disabled={!canManage || isBusy}
+                    isSaving={savingProductId === product.id}
+                    adminPath={adminPath}
+                    onEdit={(row) => { void openEditModal(row); }}
+                    onDelete={(row) => void deleteProduct(row)}
+                    onToggle={(row) => void toggleActive(row)}
+                    onManageModifiers={(row) => navigate(`${adminPath}/products/${row.id}/modifiers`)}
+                  />
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : null}
+
+      {/* Single-category DnD view */}
       {!loading && searchResults === null && selectedCategoryId && productsInSelectedCategory.length > 0 ? (
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
           <SortableContext items={productIds} strategy={verticalListSortingStrategy}>
@@ -1119,9 +1532,7 @@ export default function AdminProductsPage() {
                   disabled={!canManage || isBusy}
                   isSaving={savingProductId === product.id}
                   adminPath={adminPath}
-                  onEdit={(row) => {
-                    void openEditModal(row);
-                  }}
+                  onEdit={(row) => { void openEditModal(row); }}
                   onDelete={(row) => void deleteProduct(row)}
                   onToggle={(row) => void toggleActive(row)}
                   onManageModifiers={(row) => navigate(`${adminPath}/products/${row.id}/modifiers`)}
@@ -1132,8 +1543,10 @@ export default function AdminProductsPage() {
         </DndContext>
       ) : null}
 
-      {modal ? (
+      {animatedModal.mounted && animatedModal.displayValue ? (
         <div
+          className="ui-overlay"
+          data-state={animatedModal.visible ? "open" : "closed"}
           role="presentation"
           onClick={closeModal}
           style={{
@@ -1146,9 +1559,11 @@ export default function AdminProductsPage() {
           }}
         >
           <div
+            className="ui-modal-panel"
+            data-state={animatedModal.visible ? "open" : "closed"}
             role="dialog"
             aria-modal="true"
-            aria-label={modal.mode === "create" ? "Crear producto" : "Editar producto"}
+            aria-label={animatedModal.displayValue.mode === "create" ? "Crear producto" : "Editar producto"}
             onClick={(event) => event.stopPropagation()}
             style={{
               width: "min(620px, calc(100vw - 32px))",
@@ -1162,7 +1577,7 @@ export default function AdminProductsPage() {
               overflowY: "auto",
             }}
           >
-            <h3 style={{ margin: 0 }}>{modal.mode === "create" ? "Nuevo producto" : "Editar producto"}</h3>
+            <h3 style={{ margin: 0 }}>{animatedModal.displayValue.mode === "create" ? "Nuevo producto" : "Editar producto"}</h3>
 
             <label style={{ display: "grid", gap: 6 }}>
               <span style={{ fontSize: 13, color: "#374151" }}>Nombre *</span>
@@ -1235,6 +1650,21 @@ export default function AdminProductsPage() {
             </div>
 
             <div style={{ display: "grid", gap: 6 }}>
+              <span style={{ fontSize: 13, color: "#374151", display: "inline-flex", alignItems: "center" }}>
+                Upsell en checkout <HelpTooltip text="Si activas esto, este producto aparece en el modal de upsell justo antes de confirmar el pedido (máx. 3 productos)" />
+              </span>
+              <label style={{ display: "inline-flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+                <input
+                  type="checkbox"
+                  checked={draft.is_upsell}
+                  disabled={submittingModal}
+                  onChange={(e) => updateDraft("is_upsell", e.target.checked)}
+                />
+                <span style={{ fontSize: 13, color: "#374151" }}>Sugerir este producto en el checkout</span>
+              </label>
+            </div>
+
+            <div style={{ display: "grid", gap: 6 }}>
               <span style={{ fontSize: 13, color: "#374151" }}>Imagen</span>
               {previewSrc ? (
                 <img
@@ -1250,6 +1680,11 @@ export default function AdminProductsPage() {
                 disabled={submittingModal}
                 style={{ fontSize: 13 }}
               />
+              {imageError ? (
+                <div style={{ border: "1px solid #fecaca", background: "#fef2f2", color: "#991b1b", borderRadius: 8, padding: "6px 10px", fontSize: 12 }}>
+                  {imageError}
+                </div>
+              ) : null}
               <input
                 value={draft.image_url}
                 onChange={(event) => updateDraft("image_url", event.target.value)}
@@ -1311,6 +1746,58 @@ export default function AdminProductsPage() {
               )}
             </section>
 
+            <section style={{ display: "grid", gap: 8 }}>
+              <span style={{ fontSize: 13, color: "#374151" }}>Ingredientes</span>
+              {restaurantIngredients.length === 0 ? (
+                <div style={{ color: "#6b7280", fontSize: 13 }}>
+                  No hay ingredientes. Créalos en{" "}
+                  <span style={{ color: "var(--brand-primary)", fontWeight: 600 }}>Menú → Ingredientes</span>.
+                </div>
+              ) : (
+                <div
+                  style={{
+                    border: "1px solid #e5e7eb",
+                    borderRadius: 8,
+                    padding: 10,
+                    display: "grid",
+                    gap: 6,
+                    maxHeight: 180,
+                    overflowY: "auto",
+                  }}
+                >
+                  {restaurantIngredients.map((ingredient) => (
+                    <label
+                      key={ingredient.id}
+                      style={{ display: "inline-flex", alignItems: "center", gap: 8, color: "#374151" }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedIngredientIds.includes(ingredient.id)}
+                        disabled={submittingModal}
+                        onChange={() => toggleIngredientSelection(ingredient.id)}
+                      />
+                      <span style={{ flex: 1 }}>{ingredient.name}</span>
+                      {!ingredient.is_available && (
+                        <span
+                          style={{
+                            fontSize: 10,
+                            fontWeight: 700,
+                            color: "#ef4444",
+                            background: "#fef2f2",
+                            border: "1px solid #fecaca",
+                            borderRadius: 4,
+                            padding: "1px 4px",
+                          }}
+                        >
+                          AGOTADO
+                        </span>
+                      )}
+                    </label>
+                  ))}
+                </div>
+              )}
+            </section>
+
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
               <button
                 type="button"
@@ -1348,6 +1835,141 @@ export default function AdminProductsPage() {
           </div>
         </div>
       ) : null}
+
+      {/* ── Import CSV Modal ───────────────────────────────────────────── */}
+      {showImportModal && (
+        <div
+          style={{
+            position: "fixed", inset: 0, zIndex: 1800,
+            background: "rgba(0,0,0,0.45)", display: "flex",
+            alignItems: "center", justifyContent: "center", padding: 16,
+          }}
+          onClick={(e) => { if (e.target === e.currentTarget && !importProgress) setShowImportModal(false); }}
+        >
+          <div
+            style={{
+              background: "#fff", borderRadius: 16, padding: 24,
+              width: "100%", maxWidth: 560, maxHeight: "85vh",
+              overflow: "auto", display: "grid", gap: 16,
+              boxShadow: "0 20px 48px rgba(0,0,0,0.2)",
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: "#0f172a" }}>Importar productos (CSV)</h3>
+              {!importProgress && (
+                <button type="button" onClick={() => setShowImportModal(false)}
+                  style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: "#6b7280" }}>×</button>
+              )}
+            </div>
+
+            <div style={{ fontSize: 13, color: "#64748b", lineHeight: 1.5 }}>
+              El CSV debe usar <strong>;</strong> como separador. Columnas: <code>name;description;price;category;is_active;is_upsell;image_url</code>.
+              Se hace upsert por <strong>name + restaurante</strong>. Las imágenes no se importan.
+            </div>
+
+            {!importProgress && (
+              <div>
+                <input
+                  type="file"
+                  accept=".csv"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) { handleParseImportFile(file); }
+                  }}
+                  style={{ fontSize: 13 }}
+                />
+              </div>
+            )}
+
+            {importProgress && (
+              <div style={{ display: "grid", gap: 8 }}>
+                <div style={{ fontSize: 14, fontWeight: 600, color: "#0f172a" }}>
+                  Importando… {importProgress.done}/{importProgress.total}
+                </div>
+                <div style={{ height: 8, background: "#f1f5f9", borderRadius: 4, overflow: "hidden" }}>
+                  <div style={{
+                    height: "100%", borderRadius: 4, background: "#4ec580",
+                    width: `${(importProgress.done / importProgress.total) * 100}%`,
+                    transition: "width 0.2s ease",
+                  }} />
+                </div>
+              </div>
+            )}
+
+            {!importProgress && importParsed.length > 0 && (() => {
+              const valid = importParsed.filter((r) => r.errors.length === 0);
+              const invalid = importParsed.filter((r) => r.errors.length > 0);
+              const preview = valid.slice(0, 5);
+              return (
+                <div style={{ display: "grid", gap: 12 }}>
+                  <div style={{ fontSize: 13, color: "#374151" }}>
+                    <strong>{valid.length}</strong> productos válidos · <strong style={{ color: invalid.length > 0 ? "#991b1b" : undefined }}>{invalid.length}</strong> con errores
+                  </div>
+
+                  {preview.length > 0 && (
+                    <div>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: "#6b7280", textTransform: "uppercase", marginBottom: 6 }}>
+                        Vista previa ({preview.length > 5 ? "primeros 5" : preview.length})
+                      </div>
+                      <div style={{ display: "grid", gap: 6 }}>
+                        {preview.map((r) => (
+                          <div key={r.rowIndex} style={{
+                            border: "1px solid #e2e8f0", borderRadius: 8, padding: "8px 12px",
+                            fontSize: 13, display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap",
+                          }}>
+                            <span style={{ fontWeight: 600, color: "#0f172a" }}>{r.name}</span>
+                            <span style={{ color: "#64748b" }}>{r.categoryName}</span>
+                            <span style={{ fontWeight: 600 }}>{r.price.toFixed(2)} €</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {invalid.length > 0 && (
+                    <div>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: "#991b1b", textTransform: "uppercase", marginBottom: 6 }}>
+                        Errores ({invalid.length} fila{invalid.length !== 1 ? "s" : ""} — se omitirán)
+                      </div>
+                      <div style={{ display: "grid", gap: 4, maxHeight: 160, overflow: "auto" }}>
+                        {invalid.map((r) => (
+                          <div key={r.rowIndex} style={{
+                            border: "1px solid #fecaca", background: "#fef2f2",
+                            borderRadius: 6, padding: "6px 10px", fontSize: 12,
+                          }}>
+                            <span style={{ fontWeight: 700 }}>Fila {r.rowIndex}:</span>{" "}
+                            {r.errors.join(" · ")}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {valid.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => void handleConfirmImport()}
+                      style={{
+                        background: "#0f172a", color: "#fff", border: "none",
+                        borderRadius: 10, padding: "10px 16px", fontSize: 14,
+                        fontWeight: 700, cursor: "pointer", alignSelf: "start",
+                      }}
+                    >
+                      Confirmar importación ({valid.length} producto{valid.length !== 1 ? "s" : ""})
+                    </button>
+                  )}
+                </div>
+              );
+            })()}
+
+            {!importProgress && importParsed.length === 0 && (
+              <div style={{ fontSize: 13, color: "#9ca3af", textAlign: "center", padding: "12px 0" }}>
+                Selecciona un archivo CSV para ver la vista previa.
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       <div
         style={{

@@ -1,0 +1,91 @@
+name: Deploy to Production
+
+on:
+  push:
+    branches: [main]
+
+# Solo un deploy a la vez
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # Solo ejecutar si el job de CI pasó
+    needs: []  # CI corre en el mismo push; Netlify/Vercel despliegan automáticamente
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # ── Build ─────────────────────────────────────────────────────────────────
+      # Las variables de producción reales vienen de GitHub Secrets.
+      # Configúralas en: GitHub → Settings → Secrets and variables → Actions
+      - name: Build for production
+        run: npm run build
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+          VITE_STRIPE_ENABLED: ${{ secrets.VITE_STRIPE_ENABLED }}
+          VITE_STRIPE_PUBLISHABLE_KEY: ${{ secrets.VITE_STRIPE_PUBLISHABLE_KEY }}
+          VITE_SENTRY_DSN: ${{ secrets.VITE_SENTRY_DSN }}
+
+      # ── Deploy a Netlify ──────────────────────────────────────────────────────
+      # Alternativa: Vercel (ver comentario abajo)
+      # Requiere: NETLIFY_AUTH_TOKEN y NETLIFY_SITE_ID en GitHub Secrets
+      - name: Deploy to Netlify
+        if: ${{ env.NETLIFY_AUTH_TOKEN != '' }}
+        run: npx netlify-cli deploy --prod --dir=dist
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
+
+      # ── Deploy a Vercel (alternativa a Netlify) ───────────────────────────────
+      # Descomenta y elimina el paso de Netlify si usas Vercel:
+      # - name: Deploy to Vercel
+      #   run: npx vercel --prod --token=${{ secrets.VERCEL_TOKEN }}
+      #   env:
+      #     VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      #     VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
+      # ── Deploy Edge Functions a Supabase ─────────────────────────────────────
+      - name: Deploy Supabase Edge Functions
+        if: ${{ env.SUPABASE_ACCESS_TOKEN != '' }}
+        run: |
+          npx supabase functions deploy --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+      # ── Health check post-deploy ──────────────────────────────────────────────
+      # Espera que el sitio esté arriba y comprueba el health endpoint.
+      # El endpoint /api/health lo sirve la Edge Function `health`.
+      - name: Health check
+        if: ${{ env.SITE_URL != '' }}
+        run: |
+          HEALTH_URL="${{ secrets.SITE_URL }}/functions/v1/health"
+          echo "Checking health at: $HEALTH_URL"
+          for i in 1 2 3; do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$HEALTH_URL" || echo "000")
+            if [ "$STATUS" = "200" ]; then
+              echo "✅ Health check passed (attempt $i)"
+              exit 0
+            fi
+            echo "⏳ Health check attempt $i failed (status $STATUS), retrying in 10s..."
+            sleep 10
+          done
+          echo "❌ Health check failed after 3 attempts"
+          exit 1
+        env:
+          SITE_URL: ${{ secrets.SITE_URL }}

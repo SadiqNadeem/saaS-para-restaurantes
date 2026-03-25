@@ -7,6 +7,8 @@ import PosModifierModal from "../components/PosModifierModal";
 import type { ModalConfirmPayload, SelectedModifier } from "../components/PosModifierModal";
 import { createPosOrder } from "../services/posOrderService";
 import type { PosPaymentMethod } from "../services/posOrderService";
+import { enqueueOrder } from "../services/offlineQueue";
+import { useOnlineStatus } from "../../hooks/useOnlineStatus";
 import { printKitchenTicket, printPosTicket } from "../services/posPrintService";
 import type { PosTicketData } from "../services/posPrintService";
 
@@ -48,6 +50,7 @@ type SuccessState = {
   total: number;
   changeDue: number | null;
   ticketData: PosTicketData;
+  isOfflineOrder?: boolean;
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -85,8 +88,15 @@ function getPlaceholderColor(name: string): string {
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
+const MENU_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 h
+
+function menuCacheKey(restaurantId: string) {
+  return `pos_menu_${restaurantId}`;
+}
+
 export default function PosCajaPage() {
   const { restaurantId, name } = useRestaurant();
+  const isOnline = useOnlineStatus();
 
   // FIX 1: responsive layout
   const [windowWidth, setWindowWidth] = useState(() =>
@@ -105,6 +115,8 @@ export default function PosCajaPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [modifierProductIds, setModifierProductIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+  const [retryCount, setRetryCount] = useState(0);
 
   // ── UI state ──
   const [activeCatId, setActiveCatId] = useState<string | null>(null);
@@ -132,9 +144,11 @@ export default function PosCajaPage() {
   useEffect(() => {
     if (!restaurantId) return;
     let alive = true;
+    void retryCount; // incluido en las dependencias para permitir reintentos
 
     const load = async () => {
       setLoading(true);
+      setFetchError(null);
 
       const [catRes, prodRes] = await Promise.all([
         supabase
@@ -153,6 +167,34 @@ export default function PosCajaPage() {
 
       if (!alive) return;
 
+      if (catRes.error || prodRes.error) {
+        if (import.meta.env.DEV) console.error("[PosCaja] load", catRes.error ?? prodRes.error);
+
+        // Try to serve from cache when offline
+        try {
+          const cached = localStorage.getItem(menuCacheKey(restaurantId));
+          if (cached) {
+            type MenuCache = { categories: Category[]; products: Product[]; cachedAt: number };
+            const { categories: cachedCats, products: cachedProds, cachedAt } = JSON.parse(cached) as MenuCache;
+            const age = Date.now() - (cachedAt ?? 0);
+            if (age < MENU_CACHE_TTL_MS) {
+              if (!alive) return;
+              setCategories(cachedCats);
+              setProducts(cachedProds);
+              setFetchError("Sin conexión — mostrando menú en caché");
+              setLoading(false);
+              return;
+            }
+          }
+        } catch {
+          // corrupt cache — ignore
+        }
+
+        setFetchError("No se pudo cargar el menú. Comprueba la conexión e inténtalo de nuevo.");
+        setLoading(false);
+        return;
+      }
+
       const cats = (catRes.data ?? []) as Category[];
       const prods = (prodRes.data ?? []).map((p) => ({
         id: String(p.id),
@@ -166,6 +208,16 @@ export default function PosCajaPage() {
       }));
       setCategories(cats);
       setProducts(prods);
+
+      // Persist menu for offline use
+      try {
+        localStorage.setItem(
+          menuCacheKey(restaurantId),
+          JSON.stringify({ categories: cats, products: prods, cachedAt: Date.now() })
+        );
+      } catch {
+        // storage full — ignore
+      }
 
       if (prods.length > 0) {
         const productIds = prods.map((p) => p.id);
@@ -188,7 +240,7 @@ export default function PosCajaPage() {
     return () => {
       alive = false;
     };
-  }, [restaurantId]);
+  }, [restaurantId, retryCount]);
 
   // ── Scroll product grid to top when category changes ──
   useEffect(() => {
@@ -352,6 +404,72 @@ export default function PosCajaPage() {
     setSubmitting(true);
     setOrderError(null);
 
+    // ── Offline path: queue the order locally ──────────────────────────────
+    if (!isOnline) {
+      const orderParams = {
+        restaurantId,
+        orderType,
+        payment,
+        cashGiven: payment === "cash" ? (parseFloat(cashGiven) || 0) : 0,
+        customerName,
+        items: cart.map((item) => ({
+          product_id: item.product_id,
+          qty: item.qty,
+          modifiers: item.modifiers,
+        })),
+      };
+      const queueId = enqueueOrder(
+        orderParams,
+        total,
+        customerName || "Cliente mostrador"
+      );
+
+      const offlineTicket: PosTicketData = {
+        orderId: queueId,
+        createdAt: new Date().toISOString(),
+        restaurantName: name ?? "Restaurante",
+        orderType,
+        customerName: customerName || "Cliente mostrador",
+        paymentMethod: payment === "cash" ? "cash" : payment === "fiado" ? "cash" : "card_on_delivery",
+        cashGiven: payment === "cash" ? (parseFloat(cashGiven) || 0) : null,
+        changeDue: change,
+        subtotal: total,
+        deliveryFee: 0,
+        total,
+        items: cart.map((item) => ({
+          qty: item.qty,
+          name: item.name,
+          unitPrice: item.unit_price,
+          modifiers: item.modifiers.map((mod) => ({
+            name: mod.option_name,
+            price: mod.price,
+          })),
+          notes: item.notes || undefined,
+        })),
+      };
+
+      setSuccessOrder({
+        orderId: queueId,
+        total,
+        changeDue: change,
+        ticketData: offlineTicket,
+        isOfflineOrder: true,
+      });
+
+      if (successTimerRef.current) clearTimeout(successTimerRef.current);
+      successTimerRef.current = setTimeout(() => {
+        setSuccessOrder(null);
+        setCart([]);
+        setCashGiven("");
+        setCustomerName("");
+        setOrderError(null);
+        setCartDrawerOpen(false);
+      }, 3000);
+
+      setSubmitting(false);
+      return;
+    }
+
     try {
       const { orderId } = await createPosOrder({
         restaurantId,
@@ -413,7 +531,7 @@ export default function PosCajaPage() {
       setSubmitting(false);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cart, submitting, restaurantId, orderType, payment, cashGiven, customerName, change, name, total]);
+  }, [cart, submitting, restaurantId, orderType, payment, cashGiven, customerName, change, name, total, isOnline]);
 
   checkoutRef.current = handleCheckout;
 
@@ -643,6 +761,30 @@ export default function PosCajaPage() {
     </>
   );
 
+  if (fetchError) {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", gap: 16, padding: 32, textAlign: "center" }}>
+        <p style={{ margin: 0, fontSize: 16, fontWeight: 600, color: "#111827" }}>
+          {fetchError}
+        </p>
+        <div style={{ display: "flex", gap: 12 }}>
+          <button
+            onClick={() => setRetryCount((n) => n + 1)}
+            style={{ padding: "8px 20px", background: "var(--brand-primary, #4ec580)", color: "#fff", border: "none", borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: "pointer" }}
+          >
+            Reintentar
+          </button>
+          <button
+            onClick={() => window.location.reload()}
+            style={{ padding: "8px 20px", background: "transparent", color: "#6b7280", border: "1px solid #e5e7eb", borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: "pointer" }}
+          >
+            Recargar página
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={isMobile ? s.rootMobile : s.root}>
 
@@ -798,9 +940,11 @@ export default function PosCajaPage() {
       {successOrder && (
         <div style={s.successOverlay}>
           <div style={s.successCard}>
-            <div style={s.successCheck}>✓</div>
+            <div style={s.successCheck}>{successOrder.isOfflineOrder ? "📶" : "✓"}</div>
             <div style={s.successTitle}>
-              Pedido #{successOrder.orderId.slice(-6).toUpperCase()} creado
+              {successOrder.isOfflineOrder
+                ? "Pedido guardado — se enviará al recuperar conexión"
+                : `Pedido #${successOrder.orderId.slice(-6).toUpperCase()} creado`}
             </div>
             <div style={s.successTotal}>
               Total cobrado: <strong>{fmtEur(successOrder.total)}</strong>
@@ -831,6 +975,7 @@ export default function PosCajaPage() {
               </button>
               <button
                 type="button"
+                className="ui-elevated-cta"
                 style={s.newSaleBtn}
                 onClick={clearCart}
               >
@@ -846,7 +991,7 @@ export default function PosCajaPage() {
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
 
-const G = "#4ade80";
+const G = "#f1f5f9";
 const BG = "#0f172a";
 const PANEL = "#1e293b";
 const BORDER = "#334155";
@@ -1556,6 +1701,7 @@ const s: Record<string, CSSProperties> = {
     fontWeight: 800,
     cursor: "pointer",
     letterSpacing: "0.04em",
+    boxShadow: "0 6px 14px rgba(34,197,94,0.26)",
   },
 };
 

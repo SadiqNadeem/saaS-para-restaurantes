@@ -243,6 +243,29 @@ export async function createOrderFromCheckout(params: CreateOrderParams): Promis
     throw new Error("Tu carrito esta vacio. Anade productos antes de finalizar.");
   }
 
+  // ── Validate operation modes ───────────────────────────────────────────────
+  // Check that the requested order_type (delivery/pickup) is actually enabled
+  // for this restaurant. This is an application-level guard; RLS does not
+  // enforce it, but it provides a clear error to the client.
+  if (draft.orderType === "delivery" || draft.orderType === "pickup") {
+    const { data: modeSettings } = await supabase
+      .from("restaurant_settings")
+      .select("delivery_enabled, pickup_enabled")
+      .eq("restaurant_id", restaurantId)
+      .limit(1)
+      .maybeSingle<{ delivery_enabled: boolean | null; pickup_enabled: boolean | null }>();
+
+    if (modeSettings) {
+      if (draft.orderType === "delivery" && modeSettings.delivery_enabled === false) {
+        throw new Error("El reparto a domicilio no está disponible en este momento. Por favor, elige otro tipo de pedido.");
+      }
+      if (draft.orderType === "pickup" && modeSettings.pickup_enabled === false) {
+        throw new Error("La recogida en local no está disponible en este momento. Por favor, elige otro tipo de pedido.");
+      }
+    }
+  }
+  // ──────────────────────────────────────────────────────────────────────────
+
   const existingOrderId = await findOrderByClientKey(clientOrderKey, restaurantId);
   if (existingOrderId) {
     return { orderId: existingOrderId };
@@ -406,13 +429,17 @@ export async function createOrderFromCheckout(params: CreateOrderParams): Promis
     })),
   };
 
-  console.log("[checkout] create_order_safe_v2 rpcPayload", JSON.stringify(rpcPayload, null, 2));
+  if (import.meta.env.DEV) {
+    console.log("[checkout] create_order_safe_v2 rpcPayload", JSON.stringify(rpcPayload, null, 2));
+  }
   const { data, error } = await supabase.rpc("create_order_safe_v2", rpcPayload);
 
   if (error) {
-    console.error("[checkout] RPC error", error);
-    console.error("[checkout] RPC error json", JSON.stringify(error, null, 2));
-    console.error("[checkout] RPC data on error", data);
+    if (import.meta.env.DEV) {
+      console.error("[checkout] RPC error", error);
+      console.error("[checkout] RPC error json", JSON.stringify(error, null, 2));
+      console.error("[checkout] RPC data on error", data);
+    }
     if (isTotalMismatchError(error)) {
       if (typeof window !== "undefined") {
         window.dispatchEvent(new CustomEvent("checkout:refresh-required", { detail: { reason: "TOTAL_MISMATCH" } }));
@@ -427,8 +454,10 @@ export async function createOrderFromCheckout(params: CreateOrderParams): Promis
       )
     );
   }
-  console.log("[checkout] RPC success data", data);
-  console.log("[checkout] RPC success data json", JSON.stringify(data, null, 2));
+  if (import.meta.env.DEV) {
+    console.log("[checkout] RPC success data", data);
+    console.log("[checkout] RPC success data json", JSON.stringify(data, null, 2));
+  }
 
   const orderId = extractOrderIdFromRpcData(data);
   const resolvedOrderId = orderId || (await findOrderByClientKey(clientOrderKey, restaurantId));
@@ -437,10 +466,12 @@ export async function createOrderFromCheckout(params: CreateOrderParams): Promis
     throw new Error(`RPC_EMPTY_ORDER_ID: ${JSON.stringify(data ?? null)}`);
   }
 
-  if (orderId) {
-    console.log("[checkout] RPC success data", data);
-  } else {
-    console.log("[checkout] order recovered by client_order_key", resolvedOrderId);
+  if (import.meta.env.DEV) {
+    if (orderId) {
+      console.log("[checkout] RPC success data", data);
+    } else {
+      console.log("[checkout] order recovered by client_order_key", resolvedOrderId);
+    }
   }
 
   // Track loyalty points

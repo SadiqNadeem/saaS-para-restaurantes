@@ -121,7 +121,7 @@ export async function maybeCreateRestaurantFromPendingSignup(
   if (restaurantId) {
     const { error: planUpdateError } = await supabase
       .from("restaurants")
-      .update({ plan: pending.plan ?? DEFAULT_SIGNUP_PLAN })
+      .update({ subscription_plan_id: pending.plan ?? DEFAULT_SIGNUP_PLAN })
       .eq("id", restaurantId);
 
     if (planUpdateError) {

@@ -6,11 +6,14 @@ import { useRestaurant } from "../restaurant/RestaurantContext";
 type ReviewFormState = "idle" | "submitting" | "done";
 
 function ReviewPrompt({ orderId, restaurantId }: { orderId: string; restaurantId: string }) {
+  const storageKey = `reviewed_order_${orderId}`;
   const [rating, setRating] = useState(0);
   const [hovered, setHovered] = useState(0);
   const [name, setName] = useState("");
   const [comment, setComment] = useState("");
-  const [state, setState] = useState<ReviewFormState>("idle");
+  const [state, setState] = useState<ReviewFormState>(() =>
+    localStorage.getItem(storageKey) === "1" ? "done" : "idle"
+  );
   const [error, setError] = useState<string | null>(null);
 
   const handleSubmit = async () => {
@@ -29,6 +32,7 @@ function ReviewPrompt({ orderId, restaurantId }: { orderId: string; restaurantId
       setError("No se pudo enviar la reseña. Inténtalo de nuevo.");
       setState("idle");
     } else {
+      localStorage.setItem(storageKey, "1");
       setState("done");
     }
   };
@@ -45,9 +49,9 @@ function ReviewPrompt({ orderId, restaurantId }: { orderId: string; restaurantId
           marginTop: 16,
         }}
       >
-        <div style={{ fontSize: 22, marginBottom: 4 }}></div>
+        <div style={{ fontSize: 22, marginBottom: 4 }}>✓</div>
         <div style={{ fontWeight: 700, color: "#2e8b57", fontSize: 15 }}>¡Gracias por tu opinión!</div>
-        <div style={{ fontSize: 13, color: "#6b7280", marginTop: 2 }}>Tu reseña está pendiente de aprobación.</div>
+        <div style={{ fontSize: 13, color: "#6b7280", marginTop: 2 }}>Tu reseña ha sido recibida.</div>
       </div>
     );
   }
@@ -85,7 +89,7 @@ function ReviewPrompt({ orderId, restaurantId }: { orderId: string; restaurantId
               lineHeight: 1,
             }}
           >
-            
+
           </button>
         ))}
       </div>
@@ -146,6 +150,13 @@ function ReviewPrompt({ orderId, restaurantId }: { orderId: string; restaurantId
   );
 }
 
+type OrderItem = {
+  name: string;
+  qty: number;
+  line_total: number;
+  extras: Array<{ name?: string; option_name?: string; price?: number }> | null;
+};
+
 type OrderTracking = {
   id: string;
   status: string;
@@ -156,6 +167,7 @@ type OrderTracking = {
   delivery_address: string | null;
   estimated_delivery_minutes: number | null;
   estimated_pickup_minutes: number | null;
+  items: OrderItem[];
 };
 
 const DELIVERY_STEPS = [
@@ -190,46 +202,99 @@ function formatTime(iso: string): string {
   }
 }
 
+function formatMoney(value: number): string {
+  return new Intl.NumberFormat("es-ES", {
+    style: "currency",
+    currency: "EUR",
+    minimumFractionDigits: 2,
+  }).format(value);
+}
+
+function formatExtras(extras: OrderItem["extras"]): string[] {
+  if (!extras || extras.length === 0) return [];
+  return extras
+    .map((e) => {
+      const n = String(e.name ?? e.option_name ?? "").trim();
+      const p = Number(e.price ?? 0);
+      if (!n) return "";
+      return p > 0 ? `${n} (+${formatMoney(p)})` : n;
+    })
+    .filter(Boolean);
+}
+
 export default function OrderTrackingPage() {
   const { orderId } = useParams<{ orderId: string }>();
   const { name: restaurantName, menuPath, restaurantId } = useRestaurant();
   const [order, setOrder] = useState<OrderTracking | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
 
-  const fetchOrder = async () => {
+  // ── initial fetch ──────────────────────────────────────────────────────────
+  useEffect(() => {
     if (!orderId) {
       setNotFound(true);
       setLoading(false);
       return;
     }
 
-    const { data, error } = await supabase.rpc("get_order_tracking", {
-      p_order_id: orderId,
-    });
+    let mounted = true;
 
-    if (error || !data) {
-      setNotFound(true);
+    const fetchOrder = async () => {
+      const { data, error } = await supabase.rpc("get_order_tracking", {
+        p_order_id: orderId,
+      });
+
+      if (!mounted) return;
+
+      if (error || !data) {
+        setNotFound(true);
+        setLoading(false);
+        return;
+      }
+
+      setOrder(data as OrderTracking);
       setLoading(false);
-      return;
+    };
+
+    void fetchOrder();
+    return () => { mounted = false; };
+  }, [orderId]);
+
+  // ── Supabase Realtime subscription ─────────────────────────────────────────
+  useEffect(() => {
+    if (!orderId) return;
+
+    // Clean up any existing channel first
+    if (channelRef.current) {
+      void supabase.removeChannel(channelRef.current);
     }
 
-    setOrder(data as OrderTracking);
-    setLoading(false);
-  };
+    const channel = supabase
+      .channel(`order-tracking-${orderId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "orders",
+          filter: `id=eq.${orderId}`,
+        },
+        (payload) => {
+          const updated = payload.new as { status?: string };
+          if (updated.status) {
+            setOrder((prev) => prev ? { ...prev, status: updated.status! } : prev);
+          }
+        }
+      )
+      .subscribe();
 
-  useEffect(() => {
-    void fetchOrder();
-
-    intervalRef.current = setInterval(() => {
-      void fetchOrder();
-    }, 10000);
+    channelRef.current = channel;
 
     return () => {
-      if (intervalRef.current) clearInterval(intervalRef.current);
+      void supabase.removeChannel(channel);
+      channelRef.current = null;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orderId]);
 
   const isCancelled = order?.status === "cancelled";
@@ -362,7 +427,7 @@ export default function OrderTrackingPage() {
           </div>
         )}
 
-        {/* Order details */}
+        {/* Order summary */}
         <div
           style={{
             background: "#f9fafb",
@@ -371,6 +436,7 @@ export default function OrderTrackingPage() {
             display: "grid",
             gap: 6,
             fontSize: 14,
+            marginBottom: 12,
           }}
         >
           <div style={{ display: "flex", justifyContent: "space-between" }}>
@@ -379,7 +445,7 @@ export default function OrderTrackingPage() {
           </div>
           <div style={{ display: "flex", justifyContent: "space-between" }}>
             <span style={{ color: "#6b7280" }}>Total</span>
-            <span style={{ fontWeight: 600 }}>{Number(order.total).toFixed(2)} €</span>
+            <span style={{ fontWeight: 600 }}>{formatMoney(Number(order.total))}</span>
           </div>
           {isDelivery && order.delivery_address && (
             <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
@@ -389,11 +455,67 @@ export default function OrderTrackingPage() {
           )}
         </div>
 
-        {/* Auto-refresh notice */}
-        {order.status !== "delivered" && (
-          <p style={{ fontSize: 12, color: "#9ca3af", marginTop: 16, textAlign: "center" }}>
-            Esta página se actualiza automáticamente cada 10 segundos
-          </p>
+        {/* Items list */}
+        {order.items.length > 0 && (
+          <div style={{ display: "grid", gap: 8 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: "#374151" }}>Resumen del pedido</div>
+            {order.items.map((item, i) => {
+              const extras = formatExtras(item.extras);
+              return (
+                <div
+                  key={i}
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "flex-start",
+                    gap: 12,
+                    padding: "6px 0",
+                    borderBottom: i < order.items.length - 1 ? "1px solid #f3f4f6" : "none",
+                  }}
+                >
+                  <div>
+                    <span style={{ fontWeight: 500, fontSize: 14 }}>
+                      {item.qty}× {item.name}
+                    </span>
+                    {extras.length > 0 && (
+                      <div style={{ fontSize: 12, color: "#6b7280", marginTop: 2 }}>
+                        {extras.join(", ")}
+                      </div>
+                    )}
+                  </div>
+                  <span style={{ fontWeight: 600, fontSize: 14, whiteSpace: "nowrap" }}>
+                    {formatMoney(Number(item.line_total))}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Live indicator — shown while order is active */}
+        {order.status !== "delivered" && order.status !== "cancelled" && (
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              marginTop: 16,
+              justifyContent: "center",
+            }}
+          >
+            <span
+              style={{
+                width: 8,
+                height: 8,
+                borderRadius: "50%",
+                background: "#4ec580",
+                display: "inline-block",
+                animation: "pulse 1.5s ease-in-out infinite",
+              }}
+            />
+            <span style={{ fontSize: 12, color: "#9ca3af" }}>Actualizando en tiempo real</span>
+            <style>{`@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }`}</style>
+          </div>
         )}
 
         {/* Review prompt — only when delivered */}

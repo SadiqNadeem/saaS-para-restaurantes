@@ -73,6 +73,7 @@ function Toggle({
       type="button"
       role="switch"
       aria-checked={checked}
+      className="ui-switch"
       onClick={() => { if (!disabled) onChange(!checked); }}
       style={{
         width: 52, height: 30, borderRadius: 999, border: "none",
@@ -83,11 +84,11 @@ function Toggle({
         opacity: disabled ? 0.55 : 1, padding: 0,
       }}
     >
-      <span style={{
+      <span className="ui-switch-thumb" style={{
         position: "absolute", top: 3,
-        left: checked ? 25 : 3, width: 24, height: 24,
+        left: 3, width: 24, height: 24,
         borderRadius: "50%", background: "#fff",
-        transition: "left 0.18s",
+        transform: checked ? "translateX(22px)" : "translateX(0)",
         boxShadow: "0 1px 3px rgba(0,0,0,0.2)", display: "block",
       }} />
     </button>

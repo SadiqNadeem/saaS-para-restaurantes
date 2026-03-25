@@ -37,6 +37,9 @@ type Toast = { id: number; type: ToastType; message: string };
 type SettingsRow = {
   restaurant_id: string;
   is_accepting_orders?: boolean | null;
+  delivery_enabled?: boolean | null;
+  pickup_enabled?: boolean | null;
+  pos_enabled?: boolean | null;
   delivery_radius_km?: number | null;
   delivery_fee?: number | null;
   delivery_fee_fixed?: number | null;
@@ -95,6 +98,9 @@ type RestaurantRow = {
   meta_title: string | null;
   meta_description: string | null;
   og_image_url: string | null;
+  custom_domain?: string | null;
+  custom_domain_verified?: boolean | null;
+  custom_domain_status?: string | null;
   stripe_account_id?: string | null;
   stripe_connected?: boolean | null;
   stripe_charges_enabled?: boolean | null;
@@ -127,6 +133,7 @@ const DEFAULT_DAY: Omit<HourRow, "day_of_week"> = {
 
 const SETTINGS_TABS: Array<{ id: SettingsTabId; label: string }> = [
   { id: "general", label: "General" },
+  { id: "modos", label: "Modos" },
   { id: "delivery", label: "Reparto" },
   { id: "payments", label: "Pagos" },
   { id: "hours", label: "Horarios" },
@@ -209,6 +216,7 @@ function Toggle({
       type="button"
       role="switch"
       aria-checked={checked}
+      className="ui-switch"
       onClick={() => { if (!disabled) onChange(!checked); }}
       style={{
         width: 52,
@@ -225,15 +233,16 @@ function Toggle({
       }}
     >
       <span
+        className="ui-switch-thumb"
         style={{
           position: "absolute",
           top: 3,
-          left: checked ? 25 : 3,
+          left: 3,
           width: 24,
           height: 24,
           borderRadius: "50%",
           background: "#fff",
-          transition: "left 0.18s",
+          transform: checked ? "translateX(22px)" : "translateX(0)",
           boxShadow: "0 1px 3px rgba(0,0,0,0.2)",
           display: "block",
         }}
@@ -418,7 +427,7 @@ function DraggableMarker({
 
 export default function AdminSettingsPage() {
   const { canManage } = useAdminMembership();
-  const { restaurantId, slug, menuPath } = useRestaurant();
+  const { restaurantId, slug, menuPath, adminPath } = useRestaurant();
   const [activeTab, setActiveTab] = useState<SettingsTabId>("general");
 
   const [loading, setLoading] = useState(true);
@@ -426,6 +435,12 @@ export default function AdminSettingsPage() {
   // Estado del restaurante
   const [isAcceptingOrders, setIsAcceptingOrders] = useState(true);
   const [savingAccepting, setSavingAccepting] = useState(false);
+
+  // Modos de operación
+  const [deliveryEnabled, setDeliveryEnabled] = useState(true);
+  const [pickupEnabled, setPickupEnabled] = useState(true);
+  const [posEnabled, setPosEnabled] = useState(true);
+  const [savingModes, setSavingModes] = useState<"delivery" | "pickup" | "pos" | null>(null);
 
   // Información general
   const [restaurantName, setRestaurantName] = useState("");
@@ -456,6 +471,7 @@ export default function AdminSettingsPage() {
   const [stripeOnboardingCompleted, setStripeOnboardingCompleted] = useState(false);
   const [stripeConnectStatus, setStripeConnectStatus] = useState("");
   const [savingPayments, setSavingPayments] = useState(false);
+  const [syncingStripe, setSyncingStripe] = useState(false);
 
   // Horario
   const [hoursByDay, setHoursByDay] = useState<Record<number, HourRow>>(() => toDayMap([]));
@@ -484,6 +500,14 @@ export default function AdminSettingsPage() {
   const [seoMetaDesc, setSeoMetaDesc] = useState("");
   const [seoOgImage, setSeoOgImage] = useState("");
   const [savingSEO, setSavingSEO] = useState(false);
+
+  // Custom domain
+  const [customDomain, setCustomDomain] = useState("");
+  const [customDomainVerified, setCustomDomainVerified] = useState(false);
+  const [customDomainStatus, setCustomDomainStatus] = useState("pending");
+  const [verifyingDomain, setVerifyingDomain] = useState(false);
+  const [domainVerifyMsg, setDomainVerifyMsg] = useState<string | null>(null);
+  const [savingDomain, setSavingDomain] = useState(false);
 
   // Impresión
   const [printMode, setPrintMode] = useState<"browser" | "desktop_app">("browser");
@@ -549,7 +573,7 @@ export default function AdminSettingsPage() {
     let restaurantRes = await supabase
       .from("restaurants")
       .select(
-        "id, name, meta_title, meta_description, og_image_url, stripe_account_id, stripe_connected, stripe_charges_enabled, stripe_payouts_enabled, stripe_onboarding_completed, stripe_connect_status, online_payment_enabled"
+        "id, name, meta_title, meta_description, og_image_url, custom_domain, custom_domain_verified, custom_domain_status, stripe_account_id, stripe_connected, stripe_charges_enabled, stripe_payouts_enabled, stripe_onboarding_completed, stripe_connect_status, online_payment_enabled"
       )
       .eq("id", restaurantId)
       .maybeSingle<RestaurantRow>();
@@ -572,6 +596,9 @@ export default function AdminSettingsPage() {
       setSeoMetaTitle(restaurantRes.data.meta_title ?? "");
       setSeoMetaDesc(restaurantRes.data.meta_description ?? "");
       setSeoOgImage(restaurantRes.data.og_image_url ?? "");
+      setCustomDomain(restaurantRes.data.custom_domain ?? "");
+      setCustomDomainVerified(restaurantRes.data.custom_domain_verified ?? false);
+      setCustomDomainStatus(restaurantRes.data.custom_domain_status ?? "pending");
       setStripeAccountId(restaurantRes.data.stripe_account_id ?? null);
       setStripeConnected(restaurantRes.data.stripe_connected === true);
       setStripeChargesEnabled(restaurantRes.data.stripe_charges_enabled === true);
@@ -585,7 +612,7 @@ export default function AdminSettingsPage() {
     const settingsRes = await supabase
       .from("restaurant_settings")
       .select(
-        "restaurant_id, is_accepting_orders, delivery_radius_km, delivery_fee, delivery_fee_fixed, delivery_fee_mode, delivery_fee_base, delivery_fee_per_km, delivery_fee_min, delivery_fee_max, free_delivery_over, min_order_amount, allow_cash, allow_card, allow_card_on_delivery, allow_card_online, base_lat, base_lng, restaurant_address, estimated_delivery_minutes, estimated_pickup_minutes, loyalty_enabled, loyalty_points_per_eur, loyalty_min_redeem, loyalty_redeem_value, print_mode, auto_print_web_orders, auto_print_pos_orders, print_on_new_order, print_on_accept, kitchen_printer_name, customer_printer_name, print_width, rawbt_enabled, local_print_url, desktop_app_url, print_kitchen_separate, print_sound_enabled, print_retry_enabled, auto_print_on_accept, auto_print_pos, whatsapp_phone, whatsapp_enabled, whatsapp_message_template, whatsapp_provider"
+        "restaurant_id, is_accepting_orders, delivery_enabled, pickup_enabled, pos_enabled, delivery_radius_km, delivery_fee, delivery_fee_fixed, delivery_fee_mode, delivery_fee_base, delivery_fee_per_km, delivery_fee_min, delivery_fee_max, free_delivery_over, min_order_amount, allow_cash, allow_card, allow_card_on_delivery, allow_card_online, base_lat, base_lng, restaurant_address, estimated_delivery_minutes, estimated_pickup_minutes, loyalty_enabled, loyalty_points_per_eur, loyalty_min_redeem, loyalty_redeem_value, print_mode, auto_print_web_orders, auto_print_pos_orders, print_on_new_order, print_on_accept, kitchen_printer_name, customer_printer_name, print_width, rawbt_enabled, local_print_url, desktop_app_url, print_kitchen_separate, print_sound_enabled, print_retry_enabled, auto_print_on_accept, auto_print_pos, whatsapp_phone, whatsapp_enabled, whatsapp_message_template, whatsapp_provider"
       )
       .eq("restaurant_id", restaurantId)
       .maybeSingle<SettingsRow>();
@@ -599,6 +626,9 @@ export default function AdminSettingsPage() {
     const s = settingsRes.data;
     if (s) {
       setIsAcceptingOrders(s.is_accepting_orders !== false);
+      setDeliveryEnabled(s.delivery_enabled !== false);
+      setPickupEnabled(s.pickup_enabled !== false);
+      setPosEnabled(s.pos_enabled !== false);
       setRestaurantAddress(s.restaurant_address ?? "");
       setDeliveryRadiusKm(String(toNum(s.delivery_radius_km, 5)));
       setDeliveryFeeMode(s.delivery_fee_mode ?? "fixed");
@@ -690,6 +720,18 @@ export default function AdminSettingsPage() {
     void load();
   }, [load]);
 
+  // Sincronizar estado Stripe al volver del onboarding (Stripe redirige con ?stripe_return=1)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("stripe_return") === "1" && stripeAccountId && !loading) {
+      void syncStripeStatus();
+      // Limpiar el parámetro de la URL sin recargar la página
+      const cleanUrl = window.location.pathname + (params.toString().replace(/stripe_return=1&?/, "").replace(/^&/, "") ? `?${params.toString().replace(/stripe_return=1&?/, "").replace(/^&/, "")}` : "");
+      window.history.replaceState(null, "", cleanUrl);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, stripeAccountId]);
+
   const canSave = canManage && !loading;
   const stripeUiStatus = useMemo(
     () =>
@@ -723,6 +765,103 @@ export default function AdminSettingsPage() {
     ? `Cuenta conectada: ${stripeAccountId}`
     : "Aun no hay una cuenta Stripe asociada.";
 
+  // ── Stripe Connect: sincronizar estado desde Stripe API ────────────────────
+
+  const syncStripeStatus = useCallback(async () => {
+    if (!restaurantId || syncingStripe) return;
+    setSyncingStripe(true);
+    const { data, error } = await supabase.functions.invoke<{
+      connected: boolean;
+      charges_enabled?: boolean;
+      payouts_enabled?: boolean;
+      details_submitted?: boolean;
+      status?: string;
+    }>("get-stripe-connect-status", { body: { restaurant_id: restaurantId } });
+
+    if (error) {
+      if (import.meta.env.DEV) console.error("[stripe-sync]", error);
+    } else if (data) {
+      setStripeConnected(data.connected);
+      setStripeChargesEnabled(data.charges_enabled === true);
+      setStripePayoutsEnabled(data.payouts_enabled === true);
+      setStripeOnboardingCompleted(data.details_submitted === true);
+      setStripeConnectStatus(String(data.status ?? ""));
+    }
+    setSyncingStripe(false);
+  }, [restaurantId, syncingStripe]);
+
+  // ── Stripe Connect: iniciar flujo de onboarding ────────────────────────────
+
+  const handleConnectStripe = useCallback(async () => {
+    if (!canSave || !STRIPE_PLATFORM_CONFIGURED) return;
+    setSyncingStripe(true);
+
+    const settingsUrl = `${window.location.origin}${adminPath}/settings?stripe_return=1`;
+    const { data, error } = await supabase.functions.invoke<{ url: string; account_id: string }>(
+      "create-stripe-connect-link",
+      {
+        body: {
+          restaurant_id: restaurantId,
+          return_url: settingsUrl,
+          refresh_url: settingsUrl,
+        },
+      }
+    );
+
+    setSyncingStripe(false);
+
+    if (error || !data?.url) {
+      pushToast("error", `Error iniciando Stripe Connect: ${error?.message ?? "Sin URL de respuesta"}`);
+      return;
+    }
+
+    // Guardar account_id en estado local antes de redirigir
+    if (data.account_id) setStripeAccountId(data.account_id);
+
+    // Redirigir al onboarding de Stripe (abre en la misma pestaña)
+    window.location.href = data.url;
+  }, [canSave, restaurantId, adminPath, pushToast]);
+
+  // ── Stripe Connect: desconectar cuenta ────────────────────────────────────
+
+  const handleDisconnectStripe = useCallback(async () => {
+    if (!canSave) return;
+    const confirmed = window.confirm(
+      "¿Desconectar la cuenta Stripe? Los pagos online se desactivarán hasta que vuelvas a conectar una cuenta."
+    );
+    if (!confirmed) return;
+
+    setSyncingStripe(true);
+    const { error } = await supabase
+      .from("restaurants")
+      .update({
+        stripe_account_id: null,
+        stripe_connected: false,
+        stripe_charges_enabled: false,
+        stripe_payouts_enabled: false,
+        stripe_onboarding_completed: false,
+        stripe_connect_status: null,
+        online_payment_enabled: false,
+      })
+      .eq("id", restaurantId);
+
+    setSyncingStripe(false);
+
+    if (error) {
+      pushToast("error", `Error desconectando Stripe: ${error.message}`);
+      return;
+    }
+
+    setStripeAccountId(null);
+    setStripeConnected(false);
+    setStripeChargesEnabled(false);
+    setStripePayoutsEnabled(false);
+    setStripeOnboardingCompleted(false);
+    setStripeConnectStatus("");
+    setOnlinePaymentEnabled(false);
+    pushToast("success", "Cuenta Stripe desconectada.");
+  }, [canSave, restaurantId, pushToast]);
+
   // ── Save: accepting orders (immediate on toggle) ───────────────────────────
 
   const saveAcceptingOrders = async (value: boolean) => {
@@ -743,6 +882,57 @@ export default function AdminSettingsPage() {
       pushToast("success", value ? "Restaurante aceptando pedidos." : "Restaurante pausado.");
     }
     setSavingAccepting(false);
+  };
+
+  // ── Save: modos de operación (immediate on toggle) ─────────────────────────
+
+  const saveOperationMode = async (
+    mode: "delivery" | "pickup" | "pos",
+    value: boolean
+  ) => {
+    if (!canSave || savingModes) return;
+    // Optimistic update
+    if (mode === "delivery") setDeliveryEnabled(value);
+    else if (mode === "pickup") setPickupEnabled(value);
+    else setPosEnabled(value);
+
+    setSavingModes(mode);
+
+    // Write to restaurant_settings
+    const { error } = await supabase
+      .from("restaurant_settings")
+      .upsert(
+        { restaurant_id: restaurantId, [`${mode}_enabled`]: value },
+        { onConflict: "restaurant_id" }
+      );
+
+    if (error) {
+      // Rollback
+      if (mode === "delivery") setDeliveryEnabled(!value);
+      else if (mode === "pickup") setPickupEnabled(!value);
+      else setPosEnabled(!value);
+      pushToast("error", `Error: ${error.message}`);
+      setSavingModes(null);
+      return;
+    }
+
+    // For POS: also sync to restaurant_features so the sidebar reacts
+    if (mode === "pos") {
+      await supabase
+        .from("restaurant_features")
+        .upsert(
+          { restaurant_id: restaurantId, feature_key: "pos", enabled: value },
+          { onConflict: "restaurant_id,feature_key" }
+        );
+    }
+
+    const labels: Record<typeof mode, string> = {
+      delivery: "Reparto a domicilio",
+      pickup: "Recogida en local",
+      pos: "TPV",
+    };
+    pushToast("success", `${labels[mode]} ${value ? "activado" : "desactivado"}.`);
+    setSavingModes(null);
   };
 
   // ── Save: información general ──────────────────────────────────────────────
@@ -814,6 +1004,59 @@ export default function AdminSettingsPage() {
       pushToast("success", "SEO guardado.");
     }
     setSavingSEO(false);
+  };
+
+  // ── Save/Verify: Custom Domain ─────────────────────────────────────────────
+
+  const saveDomain = async () => {
+    if (!canSave || savingDomain) return;
+    setSavingDomain(true);
+    setDomainVerifyMsg(null);
+    const domain = customDomain.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\/$/, "");
+    const { error } = await supabase
+      .from("restaurants")
+      .update({ custom_domain: domain || null })
+      .eq("id", restaurantId);
+    if (error) {
+      pushToast("error", `Error: ${error.message}`);
+    } else {
+      setCustomDomain(domain);
+      setCustomDomainVerified(false);
+      setCustomDomainStatus("pending");
+      pushToast("success", "Dominio guardado. Verifica el DNS cuando lo hayas configurado.");
+    }
+    setSavingDomain(false);
+  };
+
+  const verifyDomain = async () => {
+    if (!customDomain.trim() || verifyingDomain) return;
+    setVerifyingDomain(true);
+    setDomainVerifyMsg(null);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL ?? "https://ewxarutpvgelwdswjolz.supabase.co"}/functions/v1/verify-custom-domain`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${session?.access_token ?? ""}`,
+          },
+          body: JSON.stringify({ restaurantId, domain: customDomain.trim() }),
+        }
+      );
+      const result = await res.json() as { verified?: boolean; status?: string; details?: string };
+      setCustomDomainVerified(result.verified ?? false);
+      setCustomDomainStatus(result.status ?? "error");
+      setDomainVerifyMsg(result.details ?? "");
+      if (result.verified) {
+        pushToast("success", "¡Dominio verificado correctamente!");
+      }
+    } catch {
+      setDomainVerifyMsg("No se pudo verificar el dominio.");
+    } finally {
+      setVerifyingDomain(false);
+    }
   };
 
   // ── Save: impresión ────────────────────────────────────────────────────────
@@ -1279,6 +1522,151 @@ export default function AdminSettingsPage() {
 
         </div>
 
+        {/* ── Modos de operación ── */}
+        <div style={{ display: activeTab === "modos" ? "grid" : "none", gap: 16 }}>
+          <Card
+            title="Modos de operación"
+            subtitle="Activa o desactiva canales de pedido y módulos. Los cambios se guardan al instante."
+          >
+            <div style={{ display: "grid", gap: 0 }}>
+              {/* Delivery */}
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 16,
+                  padding: "16px 0",
+                  borderBottom: "1px solid var(--admin-card-border, #e5e7eb)",
+                }}
+              >
+                <Toggle
+                  checked={deliveryEnabled}
+                  onChange={(v) => { void saveOperationMode("delivery", v); }}
+                  disabled={cannotSave || savingModes === "delivery"}
+                />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ fontWeight: 700, fontSize: 15, color: "var(--admin-text-primary)" }}>
+                      Reparto a domicilio
+                    </span>
+                    {!deliveryEnabled && (
+                      <span style={{ fontSize: 11, fontWeight: 700, background: "#fef2f2", color: "#b91c1c", border: "1px solid #fecaca", borderRadius: 6, padding: "1px 7px" }}>
+                        Desactivado
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ fontSize: 13, color: "var(--admin-text-secondary)", marginTop: 2 }}>
+                    {deliveryEnabled
+                      ? "Los clientes pueden pedir a domicilio desde el menú público."
+                      : "La opción de domicilio está oculta en el menú público."}
+                  </div>
+                </div>
+                {savingModes === "delivery" && (
+                  <span style={{ fontSize: 12, color: "var(--admin-text-muted)", flexShrink: 0 }}>Guardando…</span>
+                )}
+              </div>
+
+              {/* Pickup */}
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 16,
+                  padding: "16px 0",
+                  borderBottom: "1px solid var(--admin-card-border, #e5e7eb)",
+                }}
+              >
+                <Toggle
+                  checked={pickupEnabled}
+                  onChange={(v) => { void saveOperationMode("pickup", v); }}
+                  disabled={cannotSave || savingModes === "pickup"}
+                />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ fontWeight: 700, fontSize: 15, color: "var(--admin-text-primary)" }}>
+                      Recogida en local
+                    </span>
+                    {!pickupEnabled && (
+                      <span style={{ fontSize: 11, fontWeight: 700, background: "#fef2f2", color: "#b91c1c", border: "1px solid #fecaca", borderRadius: 6, padding: "1px 7px" }}>
+                        Desactivado
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ fontSize: 13, color: "var(--admin-text-secondary)", marginTop: 2 }}>
+                    {pickupEnabled
+                      ? "Los clientes pueden pedir para recoger en el local."
+                      : "La opción de recogida está oculta en el menú público."}
+                  </div>
+                </div>
+                {savingModes === "pickup" && (
+                  <span style={{ fontSize: 12, color: "var(--admin-text-muted)", flexShrink: 0 }}>Guardando…</span>
+                )}
+              </div>
+
+              {/* POS */}
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 16,
+                  padding: "16px 0",
+                }}
+              >
+                <Toggle
+                  checked={posEnabled}
+                  onChange={(v) => { void saveOperationMode("pos", v); }}
+                  disabled={cannotSave || savingModes === "pos"}
+                />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ fontWeight: 700, fontSize: 15, color: "var(--admin-text-primary)" }}>
+                      TPV (Terminal Punto de Venta)
+                    </span>
+                    {!posEnabled && (
+                      <span style={{ fontSize: 11, fontWeight: 700, background: "#fef2f2", color: "#b91c1c", border: "1px solid #fecaca", borderRadius: 6, padding: "1px 7px" }}>
+                        Desactivado
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ fontSize: 13, color: "var(--admin-text-secondary)", marginTop: 2 }}>
+                    {posEnabled
+                      ? "El TPV aparece en el sidebar y está accesible para el equipo."
+                      : "El TPV está oculto del sidebar y su ruta queda bloqueada."}
+                  </div>
+                </div>
+                {savingModes === "pos" && (
+                  <span style={{ fontSize: 12, color: "var(--admin-text-muted)", flexShrink: 0 }}>Guardando…</span>
+                )}
+              </div>
+            </div>
+          </Card>
+
+          {/* Info box */}
+          {!deliveryEnabled && !pickupEnabled && (
+            <div
+              style={{
+                background: "#fffbeb",
+                border: "1px solid #fcd34d",
+                borderRadius: 10,
+                padding: "12px 16px",
+                display: "flex",
+                alignItems: "flex-start",
+                gap: 10,
+              }}
+            >
+              <span style={{ fontSize: 20, lineHeight: 1, flexShrink: 0 }}>⚠️</span>
+              <div>
+                <strong style={{ color: "#92400e", fontSize: 14 }}>
+                  Ningún canal de pedido online activo
+                </strong>
+                <p style={{ margin: "4px 0 0", fontSize: 13, color: "#a16207" }}>
+                  El menú público será solo de consulta. Los clientes no podrán realizar pedidos online.
+                </p>
+              </div>
+            </div>
+          )}
+        </div>
+
         <div style={{ display: activeTab === "delivery" ? "grid" : "none", gap: 16 }}>
         {/* ── Reparto ── */}
         <Card title="Reparto" subtitle="Radio de entrega, tarifas y pedido mínimo">
@@ -1448,28 +1836,11 @@ export default function AdminSettingsPage() {
             />
             <StripeConnectCard
               status={stripeUiStatus}
-              disabled={!canSave}
+              disabled={!canSave || syncingStripe}
+              pending={syncingStripe}
               platformMessage="Stripe aun no configurado por la plataforma. Cuando este listo, podras conectar tu cuenta y activar cobros online."
-              onPrimaryAction={() => {
-                if (!canSave) return;
-                if (!STRIPE_PLATFORM_CONFIGURED) {
-                  pushToast("error", "Stripe aun no configurado por la plataforma.");
-                  return;
-                }
-                if (stripeUiStatus === "not_connected") {
-                  pushToast("success", "Flujo de conexion preparado. Podras conectarlo cuando Stripe este activado.");
-                  return;
-                }
-                if (stripeUiStatus === "onboarding_pending") {
-                  pushToast("success", "Onboarding pendiente detectado. Continua cuando Stripe Connect este activo.");
-                  return;
-                }
-                pushToast("success", "Conexion Stripe lista para revisar.");
-              }}
-              onSecondaryAction={() => {
-                if (!canSave) return;
-                pushToast("success", "Desconexion preparada para la fase de integracion real.");
-              }}
+              onPrimaryAction={handleConnectStripe}
+              onSecondaryAction={handleDisconnectStripe}
             />
             <PaymentMethodToggle
               icon="WEB"
@@ -1978,6 +2349,152 @@ export default function AdminSettingsPage() {
           <SaveButton onClick={() => void saveSEO()} saving={savingSEO} disabled={!canSave} />
         </Card>
 
+        {/* Custom Domain */}
+        <Card
+          title="Dominio personalizado"
+          subtitle="Muestra el menú desde tu propio dominio (ej: menu.mirestaurante.com)"
+        >
+          {/* DNS instructions */}
+          <div
+            style={{
+              background: "#f8fafc",
+              border: "1px solid #e5e7eb",
+              borderRadius: 10,
+              padding: "12px 14px",
+              fontSize: 13,
+              color: "#374151",
+              marginBottom: 4,
+            }}
+          >
+            <strong>Instrucciones DNS:</strong>
+            <ol style={{ margin: "6px 0 0", paddingLeft: 18, lineHeight: 1.8 }}>
+              <li>Ve al panel DNS de tu proveedor (Cloudflare, GoDaddy, Namecheap…)</li>
+              <li>
+                Crea un registro <code>CNAME</code>:{" "}
+                <code style={{ background: "#e5e7eb", padding: "1px 4px", borderRadius: 4 }}>
+                  Nombre: menu (o @)
+                </code>{" "}
+                →{" "}
+                <code style={{ background: "#e5e7eb", padding: "1px 4px", borderRadius: 4 }}>
+                  Valor: tu-app.netlify.app
+                </code>
+              </li>
+              <li>Introduce el dominio aquí y haz clic en "Verificar"</li>
+            </ol>
+            <p style={{ margin: "8px 0 0", fontSize: 12, color: "#6b7280" }}>
+              <strong>SSL:</strong> Si usas Vercel/Netlify, añade el dominio en su panel para provisionar SSL automático. Con Cloudflare, activa el proxy (nube naranja). Con servidor propio, usa <em>caddy</em> o <em>certbot</em>.
+            </p>
+          </div>
+
+          <Field label="Tu dominio personalizado" hint="Sin https:// — ej: menu.mirestaurante.com">
+            <div style={{ display: "flex", gap: 8 }}>
+              <input
+                style={{ ...inputStyle, flex: 1 }}
+                value={customDomain}
+                onChange={(e) => {
+                  setCustomDomain(e.target.value);
+                  setCustomDomainVerified(false);
+                  setCustomDomainStatus("pending");
+                  setDomainVerifyMsg(null);
+                }}
+                placeholder="menu.mirestaurante.com"
+                disabled={!canManage}
+              />
+              <button
+                type="button"
+                onClick={() => void saveDomain()}
+                disabled={!canManage || savingDomain}
+                style={{
+                  padding: "0 16px",
+                  borderRadius: 8,
+                  border: "1px solid #e5e7eb",
+                  background: "#fff",
+                  fontSize: 13,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  whiteSpace: "nowrap" as const,
+                }}
+              >
+                {savingDomain ? "Guardando..." : "Guardar"}
+              </button>
+            </div>
+          </Field>
+
+          {/* Verification status */}
+          {customDomain.trim() && (
+            <div style={{ display: "flex", flexDirection: "column" as const, gap: 8 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <span
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 5,
+                    padding: "4px 12px",
+                    borderRadius: 99,
+                    fontSize: 12,
+                    fontWeight: 600,
+                    background:
+                      customDomainStatus === "verified"
+                        ? "#dcfce7"
+                        : customDomainStatus === "error"
+                        ? "#fee2e2"
+                        : "#f3f4f6",
+                    color:
+                      customDomainStatus === "verified"
+                        ? "#166534"
+                        : customDomainStatus === "error"
+                        ? "#991b1b"
+                        : "#374151",
+                  }}
+                >
+                  {customDomainStatus === "verified" && "✓ Verificado"}
+                  {customDomainStatus === "error" && "✗ Error de verificación"}
+                  {customDomainStatus === "pending" && "⏳ Pendiente de verificación"}
+                </span>
+
+                <button
+                  type="button"
+                  onClick={() => void verifyDomain()}
+                  disabled={verifyingDomain || !canManage}
+                  style={{
+                    padding: "5px 14px",
+                    borderRadius: 8,
+                    border: "none",
+                    background: "var(--brand-primary, #4ec580)",
+                    color: "#fff",
+                    fontSize: 13,
+                    fontWeight: 700,
+                    cursor: "pointer",
+                    opacity: verifyingDomain ? 0.7 : 1,
+                  }}
+                >
+                  {verifyingDomain ? "Verificando DNS..." : "Verificar dominio"}
+                </button>
+              </div>
+
+              {domainVerifyMsg && (
+                <p style={{ margin: 0, fontSize: 12, color: customDomainVerified ? "#166534" : "#dc2626" }}>
+                  {domainVerifyMsg}
+                </p>
+              )}
+
+              {customDomainVerified && (
+                <p style={{ margin: 0, fontSize: 12, color: "#6b7280" }}>
+                  El menú también es accesible desde{" "}
+                  <a
+                    href={`https://${customDomain}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{ color: "var(--brand-primary, #4ec580)" }}
+                  >
+                    https://{customDomain}
+                  </a>
+                </p>
+              )}
+            </div>
+          )}
+        </Card>
+
         </div>
 
         <div style={{ display: activeTab === "loyalty" ? "grid" : "none", gap: 16 }}>
@@ -2362,7 +2879,6 @@ export default function AdminSettingsPage() {
     </>
   );
 }
-
 
 
 

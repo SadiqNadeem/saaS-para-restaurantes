@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
+import { useAnimatedPresence } from "../hooks/useAnimatedPresence";
 
 type ModifierOption = {
   id: string;
@@ -51,6 +52,7 @@ function getGroupMessage(group: ModifierGroup, selectedCount: number): string | 
 
 export default function ProductModifiersModal({ open, onClose, product, groups, onConfirm }: Props) {
   const [selectedByGroup, setSelectedByGroup] = useState<Record<string, string[]>>({});
+  const presence = useAnimatedPresence(open && Boolean(product), 220);
 
   useEffect(() => {
     if (!open) {
@@ -126,13 +128,13 @@ export default function ProductModifiersModal({ open, onClose, product, groups, 
     });
   };
 
-  if (!open || !product) {
+  if (!presence.mounted || !product) {
     return null;
   }
 
   return (
-    <div style={styles.backdrop} onClick={onClose}>
-      <div style={styles.modal} onClick={(event) => event.stopPropagation()}>
+    <div className="ui-overlay" data-state={presence.visible ? "open" : "closed"} style={styles.backdrop} onClick={onClose}>
+      <div className="ui-modal-panel" data-state={presence.visible ? "open" : "closed"} style={styles.modal} onClick={(event) => event.stopPropagation()}>
         <h3>{product.name}</h3>
         <p>
           Base: {Number(product.price).toFixed(2)} EUR | Extras: {extraPrice.toFixed(2)} EUR | Total:{" "}

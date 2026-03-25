@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { useAuth } from "../../../auth/AuthContext";
 import { useRestaurant } from "../../../restaurant/RestaurantContext";
 import { supabase } from "../../../lib/supabase";
+import { useAnimatedPresence } from "../../../hooks/useAnimatedPresence";
 import { getRateLimitStatus } from "../../ai-agent/agentSecurity";
 import { runAgent } from "../../ai-agent/agentService";
 import type { AgentMessage, AgentResponse, RestaurantContext as AgentRestaurantContext } from "../../ai-agent/agentService";
@@ -132,6 +133,7 @@ type UnifiedAssistantDrawerProps = {
 };
 
 export function UnifiedAssistantDrawer({ isOpen, onClose }: UnifiedAssistantDrawerProps) {
+  const presence = useAnimatedPresence(isOpen, 220);
   const { restaurantId, name, slug, adminPath } = useRestaurant();
   const { session } = useAuth();
   const navigate = useNavigate();
@@ -287,16 +289,6 @@ export function UnifiedAssistantDrawer({ isOpen, onClose }: UnifiedAssistantDraw
       const trimmed = text.trim();
       if (!trimmed || loading || !restaurantId || !userId || rateStatus.blocked) return;
 
-      const { data: preSendSession } = await supabase.auth.getSession();
-      if (import.meta.env.DEV) {
-        console.info("[assistant-ui] session before send", {
-          hasSession: Boolean(preSendSession.session),
-          userId: preSendSession.session?.user?.id ?? null,
-          expiresAt: preSendSession.session?.expires_at ?? null,
-          restaurantId,
-          messageLength: trimmed.length,
-        });
-      }
 
       setLoading(true);
       setInput("");
@@ -400,7 +392,7 @@ export function UnifiedAssistantDrawer({ isOpen, onClose }: UnifiedAssistantDraw
     [input, loading, location.pathname, location.search, rateStatus.blocked, sendMessage]
   );
 
-  if (!isOpen) {
+  if (!presence.mounted) {
     return null;
   }
 
@@ -410,9 +402,11 @@ export function UnifiedAssistantDrawer({ isOpen, onClose }: UnifiedAssistantDraw
 
   return createPortal(
     <>
-      <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,0.24)", zIndex: 1200 }} />
+      <div className="ui-overlay" data-state={presence.visible ? "open" : "closed"} onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,0.24)", zIndex: 1200 }} />
 
       <aside
+        className="ui-drawer-panel"
+        data-state={presence.visible ? "open" : "closed"}
         style={{
           position: "fixed",
           top: 74,
@@ -578,10 +572,10 @@ export function UnifiedAssistantDrawer({ isOpen, onClose }: UnifiedAssistantDraw
               <form
                 ref={formRef}
                 onSubmit={handleChatSubmit}
-                onClickCapture={(event) => event.stopPropagation()}
-                onKeyDownCapture={(event) => {
+                onClick={(event) => event.stopPropagation()}
+                onKeyDown={(event) => {
                   if (event.key === "Enter" && import.meta.env.DEV) {
-                    console.info("[AI_DEBUG] keydown captured in assistant form", {
+                    console.info("[AI_DEBUG] keydown bubbled in assistant form", {
                       targetTag: (event.target as HTMLElement | null)?.tagName ?? null,
                     });
                   }

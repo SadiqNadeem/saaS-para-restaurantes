@@ -103,6 +103,14 @@ function AdminGate({ children }: { children: React.ReactNode }) {
         return;
       }
 
+      if (!data.is_active) {
+        setGateStatus("forbidden");
+        setGateMessage("Tu cuenta ha sido desactivada. Contacta con el propietario del restaurante.");
+        setMemberRow(null);
+        setLoading(false);
+        return;
+      }
+
       setMemberRow(data);
       setLoading(false);
     };
@@ -117,11 +125,16 @@ function AdminGate({ children }: { children: React.ReactNode }) {
   if (loading) return <div style={{ padding: 16 }}>Cargando...</div>;
 
   if (gateStatus && gateMessage) {
+    const isDeactivated = gateMessage.includes("desactivada");
     return (
       <div style={{ padding: 16, display: "grid", gap: 12, maxWidth: 520 }}>
         <h2>{gateStatus === "restaurant_not_found" ? "Restaurant no encontrado" : "403 - Acceso denegado"}</h2>
         <p>{gateMessage}</p>
-        <button onClick={() => (window.location.href = menuPath)}>Volver</button>
+        {isDeactivated ? (
+          <button onClick={() => (window.location.href = "/login")}>Ir al login</button>
+        ) : (
+          <button onClick={() => (window.location.href = menuPath)}>Volver</button>
+        )}
       </div>
     );
   }

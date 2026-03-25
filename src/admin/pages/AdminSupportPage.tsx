@@ -527,16 +527,15 @@ export default function AdminSupportPage() {
       )}
 
       {/* New ticket modal */}
-      {showNewModal && (
-        <NewTicketModal
-          onClose={() => setShowNewModal(false)}
-          onSuccess={() => {
-            setShowNewModal(false);
-            showToast(" Ticket enviado. Te responderemos pronto.");
-            void fetchTickets();
-          }}
-        />
-      )}
+      <NewTicketModal
+        open={showNewModal}
+        onClose={() => setShowNewModal(false)}
+        onSuccess={() => {
+          setShowNewModal(false);
+          showToast(" Ticket enviado. Te responderemos pronto.");
+          void fetchTickets();
+        }}
+      />
 
       {/* Ticket detail panel */}
       {selectedTicket && (

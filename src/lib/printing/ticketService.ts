@@ -15,6 +15,7 @@ export type PrintSettings = {
   autoPrintPosOrders: boolean;
   printOnNewOrder: boolean;
   printOnAccept: boolean;
+  printKitchenSeparate: boolean;
 };
 
 export type TicketItem = {

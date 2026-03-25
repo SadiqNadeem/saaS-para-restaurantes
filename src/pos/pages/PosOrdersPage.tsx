@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
+import SplitBillModal from "../components/SplitBillModal";
+
 import { useOrderRinger } from "../../admin/hooks/useOrderRinger";
 import type { OrderStatus } from "../../constants/orderStatus";
 import { supabase } from "../../lib/supabase";
@@ -12,7 +14,7 @@ import { usePosRole } from "../hooks/usePosRole";
 import { printKitchenTicket, printPosTicket } from "../services/posPrintService";
 import type { PosTicketData } from "../services/posPrintService";
 
-// â”€â”€â”€ Types â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// â"€â"€â"€ Types â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
 type PosOrderItem = PosRealtimeOrder["order_items"][number];
 type PosOrder = PosRealtimeOrder;
@@ -77,7 +79,7 @@ type PickerProduct = {
 
 const PANEL_WIDTH = 380;
 
-// â”€â”€â”€ Constants â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// â"€â"€â"€ Constants â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
 const STATUS_TABS: Array<{ value: StatusFilter; label: string }> = [
   { value: "all", label: "Todos" },
@@ -134,7 +136,7 @@ const STATUS_ACTIONS: Array<{ value: OrderStatus; label: string }> = [
   { value: "cancelled", label: "Cancelado" },
 ];
 
-// â”€â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// â"€â"€â"€ Helpers â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
 function fmtEur(n: number | null | undefined): string {
   return new Intl.NumberFormat("es-ES", {
@@ -231,7 +233,7 @@ function isValidSourceFilter(v: string | null): v is SourceFilter {
   return v === "all" || v === "pos" || v === "web" || v === "qr_table";
 }
 
-// â”€â”€â”€ Component â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// â"€â"€â"€ Component â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
 export default function PosOrdersPage() {
   const { restaurantId, name, menuPath } = useRestaurant();
@@ -272,6 +274,8 @@ export default function PosOrdersPage() {
 
   // FIX 3: Collect payment modal state
   const [collectModal, setCollectModal] = useState<CollectModal | null>(null);
+
+  const [splitBillDetail, setSplitBillDetail] = useState<OrderDetail | null>(null);
 
   const { soundEnabled, isRinging, pendingCount, enableSound, muteCycle } =
     useOrderRinger({ restaurantId: restaurantId ?? "", orders });
@@ -493,7 +497,7 @@ export default function PosOrdersPage() {
         .single();
 
       if (insertErr || !inserted) {
-        setErrorMsg(String(insertErr?.message ?? "No se pudo aÃ±adir el producto."));
+        setErrorMsg(String(insertErr?.message ?? "No se pudo añadir el producto."));
         setAddingProductId(null);
         return;
       }
@@ -599,213 +603,19 @@ export default function PosOrdersPage() {
     [activeOrders]
   );
 
-  // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  const countByStatus = useMemo(() => {
+    const m: Partial<Record<StatusFilter, number>> = { all: orders.length };
+    for (const o of orders) {
+      if (o.status) m[o.status] = (m[o.status] ?? 0) + 1;
+    }
+    return m;
+  }, [orders]);
+
+  // ─────────────────────────────────────────────────────────────────────────────
   return (
     <div style={s.root}>
 
-      {/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• HEADER â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */}
-      <div style={s.header}>
-        <div style={s.headerLeft}>
-          <h1 style={s.headerTitle}>Pedidos de hoy</h1>
-          <span style={s.headerDate}>{fmtDate()}</span>
-        </div>
-        <div style={s.headerRight}>
-          <div style={s.statPill}>
-            <span style={s.statVal}>{orders.length}</span>
-            <span style={s.statLbl}>pedidos</span>
-          </div>
-          {/* FIX 4: hide revenue stats for staff */}
-          {!isStaff && (
-            <>
-              <div style={s.statPill}>
-                <span style={s.statVal}>{fmtEur(todayRevenue)}</span>
-                <span style={s.statLbl}>entregados</span>
-              </div>
-              <div style={s.statPill}>
-                <span style={s.statVal}>{fmtEur(avgTicket)}</span>
-                <span style={s.statLbl}>ticket medio</span>
-              </div>
-            </>
-          )}
-          <div style={s.rtBadge} title={realtimeConnected ? "Tiempo real activo" : "Reconectando..."}>
-            <span style={realtimeConnected ? s.rtDotOn : s.rtDotOff} />
-            <span style={s.rtLabel}>{realtimeConnected ? "En vivo" : "..."}</span>
-          </div>
-          <button
-            type="button"
-            style={s.cierreBtn}
-            onClick={() => setShowCierreCaja(true)}
-          >
-            Cerrar caja
-          </button>
-        </div>
-      </div>
-
-      {/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• FILTER BAR â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */}
-      <div style={s.filterBar}>
-        <div style={s.tabRow}>
-          {STATUS_TABS.map((tab) => {
-            const count =
-              tab.value === "all"
-                ? orders.length
-                : orders.filter((o) => o.status === tab.value).length;
-            return (
-              <button
-                key={tab.value}
-                type="button"
-                style={statusFilter === tab.value ? s.tabActive : s.tab}
-                onClick={() => setStatusFilter(tab.value)}
-              >
-                {tab.label}
-                <span style={statusFilter === tab.value ? s.tabCountActive : s.tabCount}>
-                  {count}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-
-        <div style={s.pillRow}>
-          <div style={s.pillGroup}>
-            {(["all", "pos", "qr_table", "web"] as const).map((src) => (
-              <button
-                key={src}
-                type="button"
-                style={sourceFilter === src ? s.pillActive : s.pill}
-                onClick={() => setSourceFilter(src)}
-              >
-                {src === "all" ? "Todos" : src === "qr_table" ? "Mesa QR" : src.toUpperCase()}
-              </button>
-            ))}
-          </div>
-
-          <div style={s.soundArea}>
-            {!soundEnabled ? (
-              <button type="button" style={s.soundBtn} onClick={() => void enableSound()}>
-                ðŸ”” Activar alertas
-              </button>
-            ) : isRinging ? (
-              <button type="button" style={s.muteBtn} onClick={muteCycle}>
-                ðŸ”” Silenciar Â· {pendingCount} pendiente{pendingCount !== 1 ? "s" : ""}
-              </button>
-            ) : (
-              <span style={s.soundOn}>ðŸ”” Alertas activas</span>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• ERROR BANNER â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */}
-      {errorMsg && (
-        <div style={s.errorBar}>
-          <span>{errorMsg}</span>
-          <button
-            type="button"
-            style={s.errorClose}
-            onClick={() => setErrorMsg(null)}
-          >
-            Ã—
-          </button>
-        </div>
-      )}
-
-      {/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• ORDERS â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */}
-      <div style={s.content}>
-        <div style={{ ...s.ordersPane, paddingRight: !isMobile && panelOpen ? PANEL_WIDTH + 16 : 0 }}>
-          {loading ? (
-            <div style={s.centered}>Cargando pedidos...</div>
-          ) : filteredOrders.length === 0 ? (
-            <div style={s.centered}>
-              {orders.length === 0
-                ? "No hay pedidos hoy todavÃ­a"
-                : "No hay pedidos con estos filtros"}
-            </div>
-          ) : (
-            <div style={s.grid}>
-              {filteredOrders.map((order) => (
-                <OrderCard
-                  key={order.id}
-                  order={order}
-                  isNew={newWebOrderIds.has(order.id)}
-                  isUpdating={updatingId === order.id}
-                  onAdvance={(ns) => void updateOrderStatus(order, ns)}
-                  onReprint={() => void handleReprint(order)}
-                  onReprintKitchen={() => void handleReprintKitchen(order)}
-                  onCollect={() => setCollectModal({ orderId: order.id, total: order.total ?? 0 })}
-                  onOpenDetail={() => setSelectedOrderId(order.id)}
-                />
-              ))}
-            </div>
-          )}
-        </div>
-
-        {panelOpen && (
-          <div
-            style={isMobile ? s.mobilePanelBackdrop : s.panelBackdrop}
-            onClick={() => {
-              setSelectedOrderId(null);
-              setShowAddProducts(false);
-            }}
-          />
-        )}
-
-        <aside
-          style={{
-            ...(isMobile ? s.mobilePanel : s.detailPanel),
-            transform: panelOpen ? "translateX(0)" : "translateX(100%)",
-          }}
-        >
-          <OrderDetailPanel
-            detail={selectedDetail}
-            loading={detailLoading}
-            error={detailError}
-            updatingId={updatingId}
-            onClose={() => {
-              setSelectedOrderId(null);
-              setShowAddProducts(false);
-            }}
-            onStatusChange={(status) => {
-              if (!selectedDetail) return;
-              const sourceOrder = orders.find((item) => item.id === selectedDetail.id);
-              if (!sourceOrder) return;
-              void updateOrderStatus(sourceOrder, status);
-            }}
-            onReprint={() => {
-              if (!selectedDetail) return;
-              const sourceOrder = orders.find((item) => item.id === selectedDetail.id);
-              if (!sourceOrder) return;
-              void handleReprint(sourceOrder);
-            }}
-            onKitchen={() => {
-              if (!selectedDetail) return;
-              const sourceOrder = orders.find((item) => item.id === selectedDetail.id);
-              if (!sourceOrder) return;
-              void handleReprintKitchen(sourceOrder);
-            }}
-            onGoTable={() => {
-              if (!selectedDetail?.table_id) return;
-              navigate(`${posBase}/tables/${selectedDetail.table_id}`);
-            }}
-            onAcceptNow={() => {
-              if (!selectedDetail) return;
-              const sourceOrder = orders.find((item) => item.id === selectedDetail.id);
-              if (!sourceOrder) return;
-              void updateOrderStatus(sourceOrder, "accepted");
-            }}
-            onOpenAddProducts={() => setShowAddProducts(true)}
-          />
-        </aside>
-      </div>
-      {/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• CERRAR CAJA MODAL â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */}
-      {showCierreCaja && (
-        <CierreCajaModal
-          orders={orders}
-          restaurantId={restaurantId ?? ""}
-          onClose={() => setShowCierreCaja(false)}
-        />
-      )}
-
-      {/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• FIX 3: COBRAR AHORA MODAL â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */}
+      {/* ── Modals ── */}
       {collectModal && (
         <CollectPaymentModal
           orderId={collectModal.orderId}
@@ -822,6 +632,189 @@ export default function PosOrdersPage() {
           onClose={() => setShowAddProducts(false)}
         />
       )}
+      {splitBillDetail && (
+        <SplitBillModal
+          detail={splitBillDetail}
+          onClose={() => setSplitBillDetail(null)}
+        />
+      )}
+      {showCierreCaja && (
+        <CierreCajaModal
+          orders={orders}
+          restaurantId={restaurantId ?? ""}
+          onClose={() => setShowCierreCaja(false)}
+        />
+      )}
+
+      {/* ── Error bar ── */}
+      {errorMsg && (
+        <div style={s.errorBar}>
+          <span>{errorMsg}</span>
+          <button type="button" style={s.errorClose} onClick={() => setErrorMsg(null)}>×</button>
+        </div>
+      )}
+
+      {/* ── Header ── */}
+      <header style={s.header}>
+        <div style={s.headerLeft}>
+          <h1 style={s.headerTitle}>Pedidos</h1>
+          <div style={s.headerDate}>{fmtDate()}</div>
+        </div>
+        <div style={s.headerRight}>
+          <div style={s.statPill}>
+            <span style={s.statVal}>{fmtEur(todayRevenue)}</span>
+            <span style={s.statLbl}>Ingresos hoy</span>
+          </div>
+          <div style={s.statPill}>
+            <span style={s.statVal}>{fmtEur(avgTicket)}</span>
+            <span style={s.statLbl}>Ticket medio</span>
+          </div>
+          <div style={s.statPill}>
+            <span style={s.statVal}>{activeOrders.length}</span>
+            <span style={s.statLbl}>Activos</span>
+          </div>
+          <div style={s.rtBadge}>
+            <span style={realtimeConnected ? s.rtDotOn : s.rtDotOff} />
+            <span style={s.rtLabel}>{realtimeConnected ? "En vivo" : "Sin conexión"}</span>
+          </div>
+          <button type="button" style={s.cierreBtn} onClick={() => setShowCierreCaja(true)}>
+            Cierre caja
+          </button>
+        </div>
+      </header>
+
+      {/* ── Filter bar ── */}
+      <div style={s.filterBar}>
+        <div style={s.tabRow}>
+          {STATUS_TABS.map((tab) => {
+            const active = statusFilter === tab.value;
+            const count = countByStatus[tab.value] ?? 0;
+            return (
+              <button
+                key={tab.value}
+                type="button"
+                style={active ? s.tabActive : s.tab}
+                onClick={() => setStatusFilter(tab.value)}
+              >
+                {tab.label}
+                {count > 0 && (
+                  <span style={active ? s.tabCountActive : s.tabCount}>{count}</span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+        <div style={s.pillRow}>
+          <div style={s.pillGroup}>
+            {(["all", "pos", "web", "qr_table"] as SourceFilter[]).map((src) => {
+              const labels: Record<SourceFilter, string> = { all: "Todos", pos: "TPV", web: "Web", qr_table: "QR Mesa" };
+              return (
+                <button
+                  key={src}
+                  type="button"
+                  style={sourceFilter === src ? s.pillActive : s.pill}
+                  onClick={() => setSourceFilter(src)}
+                >
+                  {labels[src]}
+                </button>
+              );
+            })}
+          </div>
+          <div style={s.soundArea}>
+            {!soundEnabled ? (
+              <button type="button" style={s.soundBtn} onClick={enableSound}>
+                🔔 Activar sonido
+              </button>
+            ) : isRinging && pendingCount > 0 ? (
+              <button type="button" style={s.muteBtn} onClick={muteCycle}>
+                🔔 {pendingCount} nuevo{pendingCount > 1 ? "s" : ""} — Silenciar
+              </button>
+            ) : (
+              <span style={s.soundOn}>🔔 Sonido activo</span>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* ── Content ── */}
+      <div style={s.content}>
+        <div
+          style={{
+            ...s.ordersPane,
+            paddingRight: !isMobile && panelOpen ? PANEL_WIDTH + 16 : 0,
+          }}
+        >
+          {loading && <div style={s.centered}>Cargando pedidos…</div>}
+          {!loading && filteredOrders.length === 0 && (
+            <div style={s.centered}>
+              {statusFilter === "all" ? "No hay pedidos aún" : `No hay pedidos en estado "${statusFilter}"`}
+            </div>
+          )}
+          {!loading && filteredOrders.length > 0 && (
+            <div style={s.grid}>
+              {filteredOrders.map((order) => (
+                <OrderCard
+                  key={order.id}
+                  order={order}
+                  isNew={newWebOrderIds.has(order.id)}
+                  isUpdating={updatingId === order.id}
+                  onAdvance={(newStatus) => void updateOrderStatus(order, newStatus)}
+                  onReprint={() => void handleReprint(order)}
+                  onReprintKitchen={() => void handleReprintKitchen(order)}
+                  onCollect={(e) => {
+                    (e as React.MouseEvent).stopPropagation();
+                    setCollectModal({ orderId: order.id, total: order.total ?? 0 });
+                  }}
+                  onOpenDetail={() => setSelectedOrderId(order.id)}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* ── Detail panel ── */}
+        {panelOpen && (
+          <>
+            {isMobile ? (
+              <div style={s.mobilePanelBackdrop} onClick={() => setSelectedOrderId(null)} />
+            ) : (
+              <div style={s.panelBackdrop} onClick={() => setSelectedOrderId(null)} />
+            )}
+            <div style={isMobile ? s.mobilePanel : s.detailPanel}>
+              <OrderDetailPanel
+                detail={selectedDetail}
+                loading={detailLoading}
+                error={detailError}
+                updatingId={updatingId}
+                onClose={() => setSelectedOrderId(null)}
+                onStatusChange={(newStatus) => {
+                  const order = orders.find((o) => o.id === selectedOrderId);
+                  if (order) void updateOrderStatus(order, newStatus);
+                }}
+                onReprint={() => {
+                  const order = orders.find((o) => o.id === selectedOrderId);
+                  if (order) void handleReprint(order);
+                }}
+                onKitchen={() => {
+                  const order = orders.find((o) => o.id === selectedOrderId);
+                  if (order) void handleReprintKitchen(order);
+                }}
+                onGoTable={() => {
+                  if (selectedDetail?.table_id) {
+                    navigate(`${posBase}/tables/${selectedDetail.table_id}`);
+                  }
+                }}
+                onAcceptNow={() => {
+                  const order = orders.find((o) => o.id === selectedOrderId);
+                  if (order) void updateOrderStatus(order, "accepted");
+                }}
+                onOpenAddProducts={() => setShowAddProducts(true)}
+                onSplitBill={() => { if (selectedDetail) setSplitBillDetail(selectedDetail); }}
+              />
+            </div>
+          </>
+        )}
+      </div>
     </div>
   );
 }
@@ -839,6 +832,7 @@ type OrderDetailPanelProps = {
   onGoTable: () => void;
   onAcceptNow: () => void;
   onOpenAddProducts: () => void;
+  onSplitBill: () => void;
 };
 
 function OrderDetailPanel({
@@ -853,6 +847,7 @@ function OrderDetailPanel({
   onGoTable,
   onAcceptNow,
   onOpenAddProducts,
+  onSplitBill,
 }: OrderDetailPanelProps) {
   const [elapsedLabel, setElapsedLabel] = useState("hace -- min");
 
@@ -1008,6 +1003,9 @@ function OrderDetailPanel({
             + Añadir productos
           </button>
         )}
+        <button type="button" style={dp.splitBillBtn} onClick={onSplitBill}>
+          Dividir cuenta
+        </button>
         <button type="button" style={dp.actionBtn} onClick={onReprint}>
           Reimprimir ticket
         </button>
@@ -1131,7 +1129,7 @@ function AddProductsModal({ restaurantId, addingProductId, onAdd, onClose }: Add
     </div>
   );
 }
-// â”€â”€â”€ FIX 3: Collect Payment Modal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// â"€â"€â"€ FIX 3: Collect Payment Modal â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
 type CollectPaymentModalProps = {
   orderId: string;
@@ -1181,11 +1179,11 @@ function CollectPaymentModal({ orderId, total, onConfirm, onClose }: CollectPaym
       >
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <h2 style={{ margin: 0, fontSize: 17, fontWeight: 800 }}>
-            ðŸ’° Cobrar pedido #{shortId}
+            💰 Cobrar pedido #{shortId}
           </h2>
           <button type="button" onClick={onClose}
             style={{ border: "none", background: "transparent", color: MUTED, fontSize: 22, cursor: "pointer" }}>
-            Ã—
+            ×
           </button>
         </div>
 
@@ -1232,7 +1230,7 @@ function CollectPaymentModal({ orderId, total, onConfirm, onClose }: CollectPaym
               type="number"
               min={0}
               step="0.01"
-              placeholder="0.00 â‚¬"
+              placeholder="0.00 €"
               value={cashGiven}
               onChange={(e) => setCashGiven(e.target.value)}
               style={{
@@ -1282,7 +1280,7 @@ function CollectPaymentModal({ orderId, total, onConfirm, onClose }: CollectPaym
   );
 }
 
-// â”€â”€â”€ Cerrar Caja Modal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// â"€â"€â"€ Cerrar Caja Modal â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
 type CierreCajaModalProps = {
   orders: PosOrder[];
@@ -1361,7 +1359,7 @@ function CierreCajaModal({ orders, restaurantId, onClose }: CierreCajaModalProps
   const handlePrint = () => {
     const rows = (Object.entries(revenueByPayment) as [string, number][])
       .map(([pm, amt]) =>
-        `<tr><td>${PAYMENT_LABEL_MAP[pm] ?? pm}</td><td style="text-align:right">${amt.toFixed(2)}â‚¬</td></tr>`
+        `<tr><td>${PAYMENT_LABEL_MAP[pm] ?? pm}</td><td style="text-align:right">${amt.toFixed(2)}€</td></tr>`
       )
       .join("");
 
@@ -1372,12 +1370,12 @@ function CierreCajaModal({ orders, restaurantId, onClose }: CierreCajaModalProps
     const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Cierre de caja</title>
       <style>body{font-family:monospace;font-size:13px;padding:16px}h2{margin:0 0 12px}table{width:100%;border-collapse:collapse}td{padding:4px 0}hr{border:1px dashed #000;margin:8px 0}</style>
       </head><body>
-      <h2>Cierre de caja â€” ${new Date().toLocaleDateString("es-ES")}</h2>
+      <h2>Cierre de caja — ${new Date().toLocaleDateString("es-ES")}</h2>
       <hr><b>Pedidos por origen</b><table>
       <tr><td>TPV</td><td style="text-align:right">${posOrders.length}</td></tr>
       <tr><td>Web</td><td style="text-align:right">${webOrders.length}</td></tr>
-      </table><hr><b>Ingresos por mÃtodo de pago</b><table>${rows}</table>
-      <hr><b>Total: ${totalRevenue.toFixed(2)}â‚¬</b>
+      </table><hr><b>Ingresos por método de pago</b><table>${rows}</table>
+      <hr><b>Total: ${totalRevenue.toFixed(2)}€</b>
       <hr><b>Pedidos por estado</b><table>${statusRows}</table>
       </body></html>`;
 
@@ -1413,7 +1411,7 @@ function CierreCajaModal({ orders, restaurantId, onClose }: CierreCajaModalProps
           <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800 }}>Cierre de caja</h2>
           <button type="button" onClick={onClose}
             style={{ border: "none", background: "transparent", color: MUTED, fontSize: 22, cursor: "pointer", lineHeight: 1 }}>
-            Ã—
+            ×
           </button>
         </div>
 
@@ -1439,13 +1437,13 @@ function CierreCajaModal({ orders, restaurantId, onClose }: CierreCajaModalProps
         <Section title="Arqueo de caja">
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
             <div>
-              <div style={{ fontSize: 11, color: MUTED, marginBottom: 4 }}>Efectivo contado (â‚¬)</div>
+              <div style={{ fontSize: 11, color: MUTED, marginBottom: 4 }}>Efectivo contado (€)</div>
               <input type="number" min="0" step="0.01" value={countedCash}
                 onChange={(e) => { setCountedCash(e.target.value); }}
                 placeholder="0.00" style={inputSt} />
             </div>
             <div>
-              <div style={{ fontSize: 11, color: MUTED, marginBottom: 4 }}>Tarjeta contada (â‚¬)</div>
+              <div style={{ fontSize: 11, color: MUTED, marginBottom: 4 }}>Tarjeta contada (€)</div>
               <input type="number" min="0" step="0.01" value={countedCard}
                 onChange={(e) => { setCountedCard(e.target.value); }}
                 placeholder="0.00" style={inputSt} />
@@ -1516,7 +1514,7 @@ function Row({ label, value, bold }: { label: string; value: string; bold?: bool
   );
 }
 
-// â”€â”€â”€ Elapsed timer â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// â"€â"€â"€ Elapsed timer â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
 const ACTIVE_STATUSES: Set<string> = new Set(["pending", "accepted", "preparing", "ready", "out_for_delivery"]);
 
@@ -1545,13 +1543,12 @@ function ElapsedTimer({ since, status }: { since: string | null | undefined; sta
   const color = mins >= 15 ? "#f87171" : mins >= 5 ? "#fb923c" : "#94a3b8";
 
   return (
-    <span style={{ fontSize: 12, fontWeight: 700, color, letterSpacing: "0.01em", fontVariantNumeric: "tabular-nums" }}>
-      â± {label}
+    <span style={{ fontSize: 12, fontWeight: 700, color, letterSpacing: "0.01em", fontVariantNumeric: "tabular-nums" }}> {label}
     </span>
   );
 }
 
-// â”€â”€â”€ Order Card â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// â"€â"€â"€ Order Card â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
 type OrderCardProps = {
   order: PosOrder;
@@ -1572,12 +1569,12 @@ function OrderCard({ order, isNew, isUpdating, onAdvance, onReprint, onReprintKi
 
   const orderTypeLabel =
     ORDER_TYPE_LABELS[order.order_type ?? ""] ??
-    (order.order_type?.toUpperCase() ?? "â€”");
+    (order.order_type?.toUpperCase() ?? "—");
 
   const isPos = order.source === "pos";
   const isQrTable = order.source === "qr_table";
   const paymentLabel =
-    PAYMENT_LABELS[order.payment_method ?? ""] ?? order.payment_method ?? "â€”";
+    PAYMENT_LABELS[order.payment_method ?? ""] ?? order.payment_method ?? "—";
 
   // FIX 3: fiado = payment_status is 'pending' and order is not cancelled
   const isFiado = order.payment_status === "pending" && order.status !== "cancelled";
@@ -1618,7 +1615,7 @@ function OrderCard({ order, isNew, isUpdating, onAdvance, onReprint, onReprintKi
           <span style={c.badgeType}>{orderTypeLabel}</span>
           {isNew && <span style={c.badgeNew}>NUEVO</span>}
           {/* FIX 3: Fiado badge */}
-          {isFiado && <span style={c.badgeFiado}>ðŸ’° FIADO</span>}
+          {isFiado && <span style={c.badgeFiado}>💰 FIADO</span>}
         </div>
         <span style={c.total}>{fmtEur(order.total)}</span>
       </div>
@@ -1631,11 +1628,11 @@ function OrderCard({ order, isNew, isUpdating, onAdvance, onReprint, onReprintKi
       {/* Items */}
       <div style={c.itemsList}>
         {order.order_items.length === 0 ? (
-          <span style={c.noItems}>Sin artÃ­culos</span>
+          <span style={c.noItems}>Sin artículos</span>
         ) : (
           order.order_items.map((item: PosOrderItem) => (
             <div key={item.id} style={c.itemRow}>
-              <span style={c.itemQty}>{item.qty}Ã—</span>
+              <span style={c.itemQty}>{item.qty}×</span>
               <span style={c.itemName}>{item.snapshot_name ?? "Producto"}</span>
             </div>
           ))
@@ -1652,7 +1649,7 @@ function OrderCard({ order, isNew, isUpdating, onAdvance, onReprint, onReprintKi
             color: chip.color,
           }}
         >
-          {status ? STATUS_LABELS[status] : "â€”"}
+          {status ? STATUS_LABELS[status] : "—"}
         </span>
       </div>
 
@@ -1706,7 +1703,7 @@ function OrderCard({ order, isNew, isUpdating, onAdvance, onReprint, onReprintKi
   );
 }
 
-// â”€â”€â”€ Design tokens â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// â"€â"€â"€ Design tokens â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
 const G = "#4ade80";
 const BG = "#0f172a";
@@ -1716,7 +1713,7 @@ const MUTED = "#64748b";
 const SEC = "#94a3b8";
 const TEXT = "#f1f5f9";
 
-// â”€â”€â”€ Page styles â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// â"€â"€â"€ Page styles â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
 const s: Record<string, CSSProperties> = {
   root: {
@@ -1957,6 +1954,7 @@ const dp: Record<string, CSSProperties> = {
   note: { fontSize: 12, color: SEC, border: `1px dashed ${BORDER}`, borderRadius: 8, padding: "6px 8px", lineHeight: 1.4 },
   footer: { borderTop: `1px solid ${BORDER}`, padding: 12, display: "grid", gap: 8, background: "rgba(15,23,42,0.45)" },
   addProductsBtn: { padding: "9px 10px", borderRadius: 8, border: `1px dashed ${G}`, background: "rgba(74,222,128,0.06)", color: G, fontSize: 12, fontWeight: 700, cursor: "pointer" },
+  splitBillBtn: { width: "100%", padding: "11px 10px", borderRadius: 8, border: "1px solid #f59e0b", background: "rgba(245,158,11,0.08)", color: "#fbbf24", fontSize: 13, fontWeight: 700, cursor: "pointer", textAlign: "left" as const },
   actionBtn: { width: "100%", padding: "11px 10px", borderRadius: 8, border: `1px solid ${BORDER}`, background: "transparent", color: TEXT, fontSize: 13, fontWeight: 700, cursor: "pointer", textAlign: "left" },
   acceptBtn: { width: "100%", padding: "12px 10px", borderRadius: 10, border: "none", background: G, color: "#052e16", fontSize: 14, fontWeight: 800, cursor: "pointer" },
 };
@@ -1977,7 +1975,7 @@ const apm: Record<string, CSSProperties> = {
   productPrice: { fontSize: 14, fontWeight: 800, color: G },
 };
 
-// â”€â”€â”€ Card styles â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// â"€â"€â"€ Card styles â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
 const c: Record<string, CSSProperties> = {
   card: {
@@ -2019,7 +2017,7 @@ const c: Record<string, CSSProperties> = {
   reprintBtn: { padding: "10px 10px", borderRadius: 8, border: `1px solid ${BORDER}`, background: "transparent", color: SEC, fontSize: 12, fontWeight: 600, cursor: "pointer", minHeight: 40, flexShrink: 0 },
 };
 
-// â”€â”€â”€ Inject keyframes once â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// â"€â"€â"€ Inject keyframes once â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
 if (typeof document !== "undefined") {
   const styleId = "pos-orders-keyframes";

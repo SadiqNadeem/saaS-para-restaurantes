@@ -5,6 +5,7 @@ import { supabase } from "../../lib/supabase";
 import { useRestaurant } from "../../restaurant/RestaurantContext";
 import { useAdminMembership } from "../components/AdminMembershipContext";
 import type { RestaurantTable } from "../../pos/services/posOrderService";
+import { useAnimatedPresence } from "../../hooks/useAnimatedPresence";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -29,19 +30,30 @@ const STATUS_COLORS: Record<string, { bg: string; color: string }> = {
 // ─── Edit modal ───────────────────────────────────────────────────────────────
 
 function EditTableModal({
+  open,
   table,
   onSave,
   onClose,
 }: {
+  open: boolean;
   table: RestaurantTable | null;
   onSave: (id: string | null, name: string, zone: string, capacity: number | null) => Promise<void>;
   onClose: () => void;
 }) {
+  const presence = useAnimatedPresence(open, 220);
   const [name, setName] = useState(table?.name ?? "");
   const [zone, setZone] = useState(table?.zone ?? "Sala");
   const [capacity, setCapacity] = useState(String(table?.capacity ?? ""));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    setName(table?.name ?? "");
+    setZone(table?.zone ?? "Sala");
+    setCapacity(String(table?.capacity ?? ""));
+    setError(null);
+  }, [open, table?.capacity, table?.name, table?.zone]);
 
   const handleSubmit = async () => {
     if (!name.trim()) { setError("El nombre es obligatorio"); return; }
@@ -57,9 +69,13 @@ function EditTableModal({
     }
   };
 
+  if (!presence.mounted) {
+    return null;
+  }
+
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 500, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={onClose}>
-      <div style={{ background: "var(--admin-card-bg)", border: "1px solid var(--admin-card-border)", borderRadius: 14, padding: 24, width: "min(420px, 100%)", display: "flex", flexDirection: "column", gap: 16, boxShadow: "0 8px 32px rgba(0,0,0,0.12)" }} onClick={(e) => e.stopPropagation()}>
+    <div className="ui-overlay" data-state={presence.visible ? "open" : "closed"} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 500, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={onClose}>
+      <div className="ui-modal-panel" data-state={presence.visible ? "open" : "closed"} style={{ background: "var(--admin-card-bg)", border: "1px solid var(--admin-card-border)", borderRadius: 14, padding: 24, width: "min(420px, 100%)", display: "flex", flexDirection: "column", gap: 16, boxShadow: "0 8px 32px rgba(0,0,0,0.12)" }} onClick={(e) => e.stopPropagation()}>
         <h3 style={{ margin: 0, fontSize: 17, fontWeight: 700, color: "var(--admin-text-primary)" }}>
           {table ? "Editar mesa" : "Nueva mesa"}
         </h3>
@@ -214,9 +230,9 @@ export default function AdminTablesPage() {
 
       {/* Table list */}
       {loading ? (
-        <div style={{ color: "var(--admin-text-muted)", fontSize: 14, padding: "40px 0", textAlign: "center" }}>Cargando...</div>
+        <div className="ui-loading-state" style={{ color: "var(--admin-text-muted)", fontSize: 14, padding: "40px 0", textAlign: "center" }}>Cargando...</div>
       ) : tables.length === 0 ? (
-        <div style={{ background: "var(--admin-card-bg)", border: "1px solid var(--admin-card-border)", borderRadius: 14, padding: "48px 24px", textAlign: "center" }}>
+        <div className="ui-empty-state" style={{ background: "var(--admin-card-bg)", border: "1px solid var(--admin-card-border)", borderRadius: 14, padding: "48px 24px", textAlign: "center" }}>
           <div style={{ fontSize: 32, marginBottom: 10 }}></div>
           <p style={{ margin: 0, color: "var(--admin-text-secondary)", fontSize: 14 }}>No hay mesas configuradas.</p>
           {canManage && (
@@ -233,6 +249,7 @@ export default function AdminTablesPage() {
 
             return (
               <div key={table.id}
+                className="ui-list-item ui-soft-border"
                 style={{ background: "var(--admin-card-bg)", border: "1px solid var(--admin-card-border)", borderRadius: 12, padding: "14px 16px", display: "flex", alignItems: "center", gap: 14, opacity: table.is_active ? 1 : 0.55 }}>
                 {/* Reorder */}
                 {canManage && (
@@ -296,13 +313,12 @@ export default function AdminTablesPage() {
       )}
 
       {/* Edit/Create modal */}
-      {editTarget !== undefined && (
-        <EditTableModal
-          table={editTarget}
-          onSave={handleSave}
-          onClose={() => setEditTarget(undefined)}
-        />
-      )}
+      <EditTableModal
+        open={editTarget !== undefined}
+        table={editTarget ?? null}
+        onSave={handleSave}
+        onClose={() => setEditTarget(undefined)}
+      />
 
       {/* QR modal */}
       {qrTable?.qr_token && (

@@ -36,6 +36,7 @@ export type RestaurantTable = {
 export async function openTableOrder(
   restaurantId: string,
   tableId: string,
+  tableName: string,
   customerName?: string
 ): Promise<{ orderId: string }> {
   // Create a dine_in order linked to the table
@@ -46,7 +47,7 @@ export async function openTableOrder(
     p_order_type: "dine_in",
     p_delivery_fee: 0,
     p_cash_given: null,
-    p_customer_name: customerName || "Mesa",
+    p_customer_name: customerName || tableName || "Mesa",
     p_customer_phone: "",
     p_delivery_address: "",
     p_notes: JSON.stringify({ pos: true, dine_in: true }),
@@ -65,13 +66,37 @@ export async function openTableOrder(
 
   if (!orderId) throw new Error("No se recibió el ID del pedido");
 
-  // Mark table as occupied (table_id is already set by the RPC)
-  await supabase
-    .from("restaurant_tables")
-    .update({ status: "occupied", current_order_id: orderId })
-    .eq("id", tableId);
+  // Persist table name on the order + mark table as occupied
+  await Promise.all([
+    supabase.from("orders").update({ table_number: tableName }).eq("id", orderId),
+    supabase.from("restaurant_tables")
+      .update({ status: "occupied", current_order_id: orderId })
+      .eq("id", tableId),
+  ]);
 
   return { orderId };
+}
+
+export type TableActiveOrder = {
+  order_id: string;
+  customer_name: string;
+  total: number;
+  status: string;
+  source: string;
+  created_at: string;
+  item_count: number;
+};
+
+export async function getTableActiveOrders(
+  restaurantId: string,
+  tableId: string
+): Promise<TableActiveOrder[]> {
+  const { data, error } = await supabase.rpc("get_table_active_orders", {
+    p_restaurant_id: restaurantId,
+    p_table_id: tableId,
+  });
+  if (error) throw new Error(error.message);
+  return (data ?? []) as TableActiveOrder[];
 }
 
 export async function addItemToTableOrder(
@@ -202,13 +227,13 @@ export async function changeOrderTable(
   ]);
 }
 
-type PosCartItem = {
+export type PosCartItem = {
   product_id: string;
   qty: number;
   modifiers: SelectedModifier[];
 };
 
-type CreatePosOrderParams = {
+export type CreatePosOrderParams = {
   restaurantId: string;
   orderType: PosOrderType;
   payment: PosPaymentMethod;

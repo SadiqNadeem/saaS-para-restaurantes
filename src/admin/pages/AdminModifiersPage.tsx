@@ -20,6 +20,7 @@ import { CSS } from "@dnd-kit/utilities";
 import { useAdminMembership } from "../components/AdminMembershipContext";
 import { supabase } from "../../lib/supabase";
 import { useRestaurant } from "../../restaurant/RestaurantContext";
+import { useAnimatedValue } from "../../hooks/useAnimatedValue";
 
 type ModifierGroupRow = {
   id: string;
@@ -69,6 +70,7 @@ function SortableGroupCard({ row, selected, disabled, isSaving, products, onSele
   const { setNodeRef, attributes, listeners, transform, transition, isDragging } = useSortable({ id: row.id, disabled });
   return (
     <article
+      className="ui-list-item ui-soft-border"
       ref={setNodeRef}
       style={{
         transform: CSS.Transform.toString(transform),
@@ -234,6 +236,7 @@ function SortableOptionCard({ row, disabled, isSaving, onEdit, onDelete, onToggl
   const hasExtraPrice = Number(row.price) > 0;
   return (
     <article
+      className="ui-list-item ui-soft-border"
       ref={setNodeRef}
       style={{
         transform: CSS.Transform.toString(transform),
@@ -469,6 +472,8 @@ export default function AdminModifiersPage() {
   }, [loadOptions, selectedGroupId]);
 
   const selectedGroup = useMemo(() => groups.find((group) => group.id === selectedGroupId) ?? null, [groups, selectedGroupId]);
+  const animatedGroupModal = useAnimatedValue(groupModal, 220);
+  const animatedOptionModal = useAnimatedValue(optionModal, 220);
   const groupIds = useMemo(() => groups.map((group) => group.id), [groups]);
   const optionIds = useMemo(() => options.map((option) => option.id), [options]);
   const groupsBusy = reorderingGroups || submittingGroupModal || Boolean(savingGroupId);
@@ -485,7 +490,6 @@ export default function AdminModifiersPage() {
   const closeGroupModal = () => {
     if (submittingGroupModal) return;
     setGroupModal(null);
-    setGroupDraft(EMPTY_GROUP_DRAFT);
   };
 
   const openCreateOptionModal = () => {
@@ -500,7 +504,6 @@ export default function AdminModifiersPage() {
   const closeOptionModal = () => {
     if (submittingOptionModal) return;
     setOptionModal(null);
-    setOptionDraft(EMPTY_OPTION_DRAFT);
   };
 
   const updateGroupDraft = <K extends keyof GroupDraft>(key: K, value: GroupDraft[K]) => setGroupDraft((prev) => ({ ...prev, [key]: value }));
@@ -966,10 +969,10 @@ export default function AdminModifiersPage() {
         </section>
       </div>
 
-      {groupModal ? (
-        <div role="presentation" onClick={closeGroupModal} style={{ position: "fixed", inset: 0, background: "rgba(17, 24, 39, 0.45)", display: "grid", placeItems: "center", zIndex: 1600 }}>
-          <div role="dialog" aria-modal="true" aria-label={groupModal.mode === "create" ? "Crear grupo" : "Editar grupo"} onClick={(event) => event.stopPropagation()} style={{ width: "min(560px, calc(100vw - 32px))", border: "1px solid #e5e7eb", borderRadius: 12, background: "#fff", padding: 16, display: "grid", gap: 12 }}>
-            <h3 style={{ margin: 0 }}>{groupModal.mode === "create" ? "Nuevo grupo" : "Editar grupo"}</h3>
+      {animatedGroupModal.mounted && animatedGroupModal.displayValue ? (
+        <div className="ui-overlay" data-state={animatedGroupModal.visible ? "open" : "closed"} role="presentation" onClick={closeGroupModal} style={{ position: "fixed", inset: 0, background: "rgba(17, 24, 39, 0.45)", display: "grid", placeItems: "center", zIndex: 1600 }}>
+          <div className="ui-modal-panel" data-state={animatedGroupModal.visible ? "open" : "closed"} role="dialog" aria-modal="true" aria-label={animatedGroupModal.displayValue.mode === "create" ? "Crear grupo" : "Editar grupo"} onClick={(event) => event.stopPropagation()} style={{ width: "min(560px, calc(100vw - 32px))", border: "1px solid #e5e7eb", borderRadius: 12, background: "#fff", padding: 16, display: "grid", gap: 12 }}>
+            <h3 style={{ margin: 0 }}>{animatedGroupModal.displayValue.mode === "create" ? "Nuevo grupo" : "Editar grupo"}</h3>
             <label style={{ display: "grid", gap: 6 }}>
               <span style={{ fontSize: 13, color: "#374151" }}>Nombre *</span>
               <input value={groupDraft.name} onChange={(event) => updateGroupDraft("name", event.target.value)} disabled={submittingGroupModal} autoFocus style={{ borderRadius: 8, border: "1px solid #d1d5db", padding: "9px 10px" }} />
@@ -996,10 +999,10 @@ export default function AdminModifiersPage() {
         </div>
       ) : null}
 
-      {optionModal ? (
-        <div role="presentation" onClick={closeOptionModal} style={{ position: "fixed", inset: 0, background: "rgba(17, 24, 39, 0.45)", display: "grid", placeItems: "center", zIndex: 1600 }}>
-          <div role="dialog" aria-modal="true" aria-label={optionModal.mode === "create" ? "Crear opcion" : "Editar opcion"} onClick={(event) => event.stopPropagation()} style={{ width: "min(520px, calc(100vw - 32px))", border: "1px solid #e5e7eb", borderRadius: 12, background: "#fff", padding: 16, display: "grid", gap: 12 }}>
-            <h3 style={{ margin: 0 }}>{optionModal.mode === "create" ? "Nueva opcion" : "Editar opcion"}</h3>
+      {animatedOptionModal.mounted && animatedOptionModal.displayValue ? (
+        <div className="ui-overlay" data-state={animatedOptionModal.visible ? "open" : "closed"} role="presentation" onClick={closeOptionModal} style={{ position: "fixed", inset: 0, background: "rgba(17, 24, 39, 0.45)", display: "grid", placeItems: "center", zIndex: 1600 }}>
+          <div className="ui-modal-panel" data-state={animatedOptionModal.visible ? "open" : "closed"} role="dialog" aria-modal="true" aria-label={animatedOptionModal.displayValue.mode === "create" ? "Crear opcion" : "Editar opcion"} onClick={(event) => event.stopPropagation()} style={{ width: "min(520px, calc(100vw - 32px))", border: "1px solid #e5e7eb", borderRadius: 12, background: "#fff", padding: 16, display: "grid", gap: 12 }}>
+            <h3 style={{ margin: 0 }}>{animatedOptionModal.displayValue.mode === "create" ? "Nueva opcion" : "Editar opcion"}</h3>
             <label style={{ display: "grid", gap: 6 }}>
               <span style={{ fontSize: 13, color: "#374151" }}>Nombre *</span>
               <input value={optionDraft.name} onChange={(event) => updateOptionDraft("name", event.target.value)} disabled={submittingOptionModal} autoFocus style={{ borderRadius: 8, border: "1px solid #d1d5db", padding: "9px 10px" }} />

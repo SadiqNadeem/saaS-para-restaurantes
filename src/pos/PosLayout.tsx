@@ -1,10 +1,13 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
 
 import { supabase } from "../lib/supabase";
 import { useRestaurant } from "../restaurant/RestaurantContext";
 import { PosRealtimeProvider, usePosRealtimeCtx } from "./PosRealtimeContext";
 import { usePosRole } from "./hooks/usePosRole";
+import { useOnlineStatus } from "../hooks/useOnlineStatus";
+import { createPosOrder } from "./services/posOrderService";
+import { getOfflineQueue, removeFromQueue } from "./services/offlineQueue";
 
 // ─── Role badge ───────────────────────────────────────────────────────────────
 
@@ -24,12 +27,49 @@ const ROLE_COLORS: Record<string, { bg: string; color: string }> = {
 
 // ─── Inner layout (consumes context) ─────────────────────────────────────────
 
+type SyncToast = { id: number; type: "success" | "error"; message: string };
+
 function PosLayoutInner() {
   const { name, menuPath, adminPath } = useRestaurant();
   const { pendingWebCount, toasts, dismissToast } = usePosRealtimeCtx();
   const { role } = usePosRole();
   const location = useLocation();
   const navigate = useNavigate();
+
+  const isOnline = useOnlineStatus();
+  const prevOnlineRef = useRef(isOnline);
+  const [syncToasts, setSyncToasts] = useState<SyncToast[]>([]);
+  const syncToastIdRef = useRef(0);
+
+  const pushSyncToast = useCallback((type: SyncToast["type"], message: string) => {
+    const id = ++syncToastIdRef.current;
+    setSyncToasts((prev) => [...prev, { id, type, message }]);
+    setTimeout(() => setSyncToasts((prev) => prev.filter((t) => t.id !== id)), 4000);
+  }, []);
+
+  // Process the offline queue when connectivity is restored
+  const syncQueue = useCallback(async () => {
+    const queue = getOfflineQueue();
+    if (queue.length === 0) return;
+
+    for (const entry of queue) {
+      try {
+        await createPosOrder(entry.params);
+        removeFromQueue(entry.queueId);
+        pushSyncToast("success", `Pedido de ${entry.customerLabel} sincronizado`);
+      } catch {
+        pushSyncToast("error", `Error al sincronizar pedido de ${entry.customerLabel} — se reintentará`);
+      }
+    }
+  }, [pushSyncToast]);
+
+  useEffect(() => {
+    if (!prevOnlineRef.current && isOnline) {
+      // just came back online — flush the queue
+      void syncQueue();
+    }
+    prevOnlineRef.current = isOnline;
+  }, [isOnline, syncQueue]);
 
   const posBase = menuPath === "/" ? "/pos" : `${menuPath}/pos`;
 
@@ -71,6 +111,7 @@ function PosLayoutInner() {
 
   return (
     <div
+      className="pos-shell"
       style={{
         display: "flex",
         height: "100dvh",
@@ -126,6 +167,28 @@ function PosLayoutInner() {
           >
             Ver pedidos →
           </span>
+        </div>
+      )}
+
+      {/* ── Offline banner ── */}
+      {!isOnline && (
+        <div
+          style={{
+            flexShrink: 0,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 10,
+            padding: "10px 20px",
+            background: "#1e293b",
+            borderBottom: "1px solid #f59e0b",
+            color: "#fbbf24",
+            fontSize: 14,
+            fontWeight: 700,
+          }}
+        >
+          <span>📶</span>
+          <span>Sin conexión — los pedidos se guardarán localmente</span>
         </div>
       )}
 
@@ -214,6 +277,7 @@ function PosLayoutInner() {
             {/* Caja */}
             <Link
               to={posBase}
+              className="ui-nav-item"
               style={{
                 display: "flex",
                 alignItems: "center",
@@ -235,6 +299,7 @@ function PosLayoutInner() {
             {/* Mesas */}
             <Link
               to={`${posBase}/tables`}
+              className="ui-nav-item"
               style={{
                 display: "flex",
                 alignItems: "center",
@@ -255,6 +320,7 @@ function PosLayoutInner() {
             {/* Plano de sala */}
             <Link
               to={`${posBase}/floor-plan`}
+              className="ui-nav-item"
               style={{
                 display: "flex",
                 alignItems: "center",
@@ -275,6 +341,7 @@ function PosLayoutInner() {
             {/* Pedidos — with pending-web badge */}
             <Link
               to={`${posBase}/orders`}
+              className="ui-nav-item"
               style={{
                 display: "flex",
                 alignItems: "center",
@@ -316,6 +383,7 @@ function PosLayoutInner() {
             {/* Admin panel link */}
             <a
               href={adminPath}
+              className="ui-nav-item"
               style={{
                 display: "flex",
                 alignItems: "center",
@@ -351,6 +419,7 @@ function PosLayoutInner() {
             <button
               type="button"
               onClick={toggleAutoPrint}
+              className="ui-switch"
               style={{
                 width: 40,
                 height: 22,
@@ -369,15 +438,16 @@ function PosLayoutInner() {
               }
             >
               <span
+                className="ui-switch-thumb"
                 style={{
                   position: "absolute",
                   top: 3,
-                  left: autoPrint ? 21 : 3,
+                  left: 3,
                   width: 16,
                   height: 16,
                   borderRadius: "50%",
                   background: "#fff",
-                  transition: "left 0.2s",
+                  transform: autoPrint ? "translateX(18px)" : "translateX(0)",
                 }}
               />
             </button>
@@ -417,9 +487,92 @@ function PosLayoutInner() {
             color: "#f1f5f9",
           }}
         >
-          <Outlet />
+          <div key={location.pathname} className="route-fade-slide">
+            <Outlet />
+          </div>
         </main>
       </div>
+
+      {/* ── Sync toasts (offline queue) ── */}
+      {syncToasts.length > 0 && (
+        <div
+          style={{
+            position: "fixed",
+            bottom: 16,
+            right: 16,
+            zIndex: 9000,
+            display: "flex",
+            flexDirection: "column",
+            gap: 8,
+            pointerEvents: "none",
+          }}
+        >
+          {syncToasts.map((t) => (
+            <div
+              key={t.id}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+                padding: "12px 16px",
+                borderRadius: 10,
+                background: "#1e293b",
+                border: `1px solid ${t.type === "success" ? "#4ade80" : "#f87171"}`,
+                color: t.type === "success" ? "#4ade80" : "#f87171",
+                fontSize: 14,
+                fontWeight: 600,
+                boxShadow: "0 4px 20px rgba(0,0,0,0.5)",
+                animation: "pos-toast-in 0.25s ease-out",
+                maxWidth: 340,
+              }}
+            >
+              <span>{t.type === "success" ? "✓" : "⚠"}</span>
+              <span>{t.message}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* ── FAB: Nuevo pedido ── */}
+      {location.pathname !== posBase && location.pathname !== posBase + "/" && (
+        <button
+          type="button"
+          onClick={() => navigate(posBase)}
+          style={{
+            position: "fixed",
+            bottom: 24,
+            right: 24,
+            zIndex: 1000,
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            height: 48,
+            padding: "0 20px",
+            borderRadius: 24,
+            border: "none",
+            background: "#4ade80",
+            color: "#0f172a",
+            fontSize: 15,
+            fontWeight: 700,
+            cursor: "pointer",
+            boxShadow: "0 4px 20px rgba(74,222,128,0.40)",
+            transition: "background 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease",
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.background = "#22c55e";
+            e.currentTarget.style.boxShadow = "0 6px 28px rgba(74,222,128,0.55)";
+            e.currentTarget.style.transform = "translateY(-1px)";
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.background = "#4ade80";
+            e.currentTarget.style.boxShadow = "0 4px 20px rgba(74,222,128,0.40)";
+            e.currentTarget.style.transform = "translateY(0)";
+          }}
+        >
+          <span style={{ fontSize: 18, lineHeight: 1 }}>+</span>
+          <span>Nuevo pedido</span>
+        </button>
+      )}
 
       {/* ── Toast notifications ── */}
       {toasts.length > 0 && (

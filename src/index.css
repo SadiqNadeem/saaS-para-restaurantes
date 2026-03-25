@@ -1,8 +1,116 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ─── Tailwind CSS variables (landing page) ─────────────────── */
+:root {
+  --tw-background: 0 0% 100%;
+  --tw-foreground: 214 68% 14%;      /* #0B1E3A navy */
+  --tw-card: 0 0% 100%;
+  --tw-card-foreground: 214 68% 14%;
+  --tw-primary: 223 64% 33%;         /* #1E3A8A medium blue */
+  --tw-primary-foreground: 0 0% 100%;
+  --tw-secondary: 220 40% 98%;       /* #F5F7FB light gray */
+  --tw-secondary-foreground: 214 68% 14%;
+  --tw-muted: 220 40% 98%;           /* #F5F7FB light gray */
+  --tw-muted-foreground: 220 9% 40%;
+  --tw-accent: 220 40% 98%;
+  --tw-accent-foreground: 214 68% 14%;
+  --tw-border: 220 20% 90%;
+  --tw-destructive: 0 84% 60%;
+  --tw-destructive-foreground: 0 0% 100%;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
 html,
 body,
 #root {
   width: 100%;
   max-width: 100%;
+}
+
+@keyframes sfFadeIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ─── Landing animation utilities ──────────────────────────── */
+
+/* Shine sweep on hover — add class "card-shine" to any card */
+.card-shine {
+  position: relative;
+  overflow: hidden;
+}
+.card-shine::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    105deg,
+    transparent 40%,
+    rgba(255, 255, 255, 0.18) 50%,
+    transparent 60%
+  );
+  background-size: 200% 100%;
+  background-position: -200% center;
+  transition: background-position 0s;
+  pointer-events: none;
+}
+.card-shine:hover::after {
+  background-position: 200% center;
+  transition: background-position 0.55s ease;
+}
+
+/* Dark card shine variant */
+.card-shine-dark::after {
+  background: linear-gradient(
+    105deg,
+    transparent 40%,
+    rgba(255, 255, 255, 0.07) 50%,
+    transparent 60%
+  );
+  background-size: 200% 100%;
+  background-position: -200% center;
+}
+.card-shine-dark:hover::after {
+  background-position: 200% center;
+  transition: background-position 0.55s ease;
+}
+
+/* Shimmer button — gradient that sweeps right on hover */
+.btn-shimmer {
+  background-image: linear-gradient(
+    90deg,
+    #1E3A8A 0%,
+    #2a52c4 40%,
+    #1E3A8A 100%
+  );
+  background-size: 200% auto;
+  transition: background-position 0.4s ease, transform 0.2s, box-shadow 0.2s;
+}
+.btn-shimmer:hover {
+  background-position: right center;
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(30, 58, 138, 0.35);
+}
+
+/* Opacity-0 until animation fills */
+.opacity-0-init {
+  opacity: 0;
+}
+
+/* ─── Reduced motion ────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 
 /* ─── Design tokens ─────────────────────────────────────────── */
@@ -422,6 +530,75 @@ input[type="radio"] {
   }
 }
 
+/* ─── Storefront layout ─────────────────────────────────────── */
+.sf-root {
+  padding: 14px 18px 100px;
+  font-family: system-ui;
+  max-width: 1240px;
+  width: 100%;
+  box-sizing: border-box;
+  margin: 0 auto;
+}
+
+.sf-product-grid {
+  display: grid;
+  gap: 18px;
+  grid-template-columns: repeat(auto-fill, minmax(min(270px, 100%), 1fr));
+  align-items: stretch;
+}
+
+@media (max-width: 430px) {
+  .sf-root {
+    padding: 10px 10px 100px;
+  }
+  .sf-product-grid {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+  .sf-cart-btn {
+    min-width: 0 !important;
+    width: calc(100vw - 28px) !important;
+    left: 14px !important;
+    right: 14px !important;
+  }
+}
+
+@media (min-width: 431px) and (max-width: 768px) {
+  .sf-product-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 14px;
+  }
+}
+
+.sf-search-wrap {
+  margin: 0 0 14px;
+}
+
+.sf-search-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(6px);
+  font-size: 14px;
+  font-family: inherit;
+  color: #0f172a;
+  outline: none;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.06);
+  transition: border-color 170ms ease, box-shadow 170ms ease;
+}
+
+.sf-search-input::placeholder {
+  color: #94a3b8;
+}
+
+.sf-search-input:focus {
+  border-color: var(--brand-primary);
+  box-shadow: 0 0 0 3px var(--brand-primary-soft), 0 4px 12px rgba(15, 23, 42, 0.06);
+}
+
 /* ─── Scrollbars (Webkit) ───────────────────────────────────── */
 ::-webkit-scrollbar {
   width: 6px;
@@ -441,4 +618,228 @@ input[type="radio"] {
 @keyframes ht-fade {
   from { opacity: 0; }
   to   { opacity: 1; }
+}
+
+@keyframes ui-fade-slide-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.route-fade-slide {
+  animation: ui-fade-slide-in 260ms ease-out;
+}
+
+.admin-card,
+.settings-shell article,
+.superadmin-shell main > section,
+.superadmin-shell main > div {
+  animation: ui-fade-slide-in 220ms ease-out;
+  will-change: transform, opacity;
+}
+
+.admin-shell button:not([role="switch"]):not(:disabled),
+.superadmin-shell button:not([role="switch"]):not(:disabled),
+.pos-shell button:not([role="switch"]):not(:disabled),
+.admin-shell a[role="button"]:not([aria-disabled="true"]),
+.superadmin-shell a[role="button"]:not([aria-disabled="true"]),
+.pos-shell a[role="button"]:not([aria-disabled="true"]) {
+  transition:
+    transform 180ms ease-out,
+    box-shadow 180ms ease-out,
+    background-color 180ms ease-out,
+    border-color 180ms ease-out,
+    color 180ms ease-out,
+    opacity 180ms ease-out;
+}
+
+.admin-shell button:not([role="switch"]):not(:disabled):hover,
+.superadmin-shell button:not([role="switch"]):not(:disabled):hover,
+.pos-shell button:not([role="switch"]):not(:disabled):hover,
+.admin-shell a[role="button"]:not([aria-disabled="true"]):hover,
+.superadmin-shell a[role="button"]:not([aria-disabled="true"]):hover,
+.pos-shell a[role="button"]:not([aria-disabled="true"]):hover {
+  transform: scale(1.02);
+}
+
+.admin-shell button:not([role="switch"]):not(:disabled):active,
+.superadmin-shell button:not([role="switch"]):not(:disabled):active,
+.pos-shell button:not([role="switch"]):not(:disabled):active,
+.admin-shell a[role="button"]:not([aria-disabled="true"]):active,
+.superadmin-shell a[role="button"]:not([aria-disabled="true"]):active,
+.pos-shell a[role="button"]:not([aria-disabled="true"]):active {
+  transform: scale(0.97);
+}
+
+.admin-shell input:not([type="checkbox"]):not([type="radio"]),
+.admin-shell select,
+.admin-shell textarea,
+.superadmin-shell input:not([type="checkbox"]):not([type="radio"]),
+.superadmin-shell select,
+.superadmin-shell textarea,
+.pos-shell input:not([type="checkbox"]):not([type="radio"]),
+.pos-shell select,
+.pos-shell textarea {
+  transition:
+    border-color 170ms ease-out,
+    box-shadow 170ms ease-out,
+    background-color 170ms ease-out;
+}
+
+.admin-shell input:not([type="checkbox"]):not([type="radio"]):focus-visible,
+.admin-shell select:focus-visible,
+.admin-shell textarea:focus-visible,
+.superadmin-shell input:not([type="checkbox"]):not([type="radio"]):focus-visible,
+.superadmin-shell select:focus-visible,
+.superadmin-shell textarea:focus-visible,
+.pos-shell input:not([type="checkbox"]):not([type="radio"]):focus-visible,
+.pos-shell select:focus-visible,
+.pos-shell textarea:focus-visible {
+  outline: none;
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.18);
+}
+
+.ui-nav-item {
+  transition:
+    background-color 180ms ease-out,
+    color 180ms ease-out,
+    transform 180ms ease-out;
+}
+
+.ui-nav-item:hover {
+  transform: translateY(-1px);
+}
+
+.ui-switch {
+  transition:
+    background-color 150ms ease-out,
+    border-color 150ms ease-out,
+    opacity 150ms ease-out;
+}
+
+.ui-switch-thumb {
+  transition: transform 150ms ease-out;
+  will-change: transform;
+}
+
+.ui-elevated-cta {
+  transition:
+    transform 180ms ease-out,
+    box-shadow 180ms ease-out,
+    opacity 180ms ease-out;
+}
+
+.ui-elevated-cta:hover {
+  transform: scale(1.02);
+  box-shadow: 0 12px 24px rgba(34, 197, 94, 0.34);
+}
+
+.ui-elevated-cta:active {
+  transform: scale(0.97);
+}
+
+.ui-overlay {
+  transition: opacity 200ms ease-out, backdrop-filter 200ms ease-out;
+}
+
+.ui-overlay[data-state="open"] {
+  opacity: 1;
+  backdrop-filter: blur(0);
+}
+
+.ui-overlay[data-state="closed"] {
+  opacity: 0;
+  backdrop-filter: blur(1px);
+}
+
+.ui-modal-panel {
+  transition:
+    opacity 220ms ease-out,
+    transform 220ms ease-out,
+    box-shadow 220ms ease-out;
+  transform-origin: center;
+}
+
+.ui-modal-panel[data-state="open"] {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+.ui-modal-panel[data-state="closed"] {
+  opacity: 0;
+  transform: translateY(8px) scale(0.98);
+}
+
+.ui-drawer-panel {
+  transition:
+    opacity 220ms ease-out,
+    transform 220ms ease-out,
+    box-shadow 220ms ease-out;
+}
+
+.ui-drawer-panel[data-state="open"] {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+.ui-drawer-panel[data-state="closed"] {
+  opacity: 0;
+  transform: translateX(16px);
+}
+
+.ui-section-enter {
+  animation: ui-fade-slide-in 220ms ease-out both;
+}
+
+.ui-list-item {
+  animation: ui-fade-slide-in 200ms ease-out both;
+}
+
+.ui-empty-state,
+.ui-loading-state,
+.ui-content-state {
+  animation: ui-fade-slide-in 200ms ease-out both;
+}
+
+.ui-soft-border {
+  transition:
+    border-color 180ms ease-out,
+    box-shadow 180ms ease-out,
+    background-color 180ms ease-out,
+    color 180ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .route-fade-slide,
+  .admin-card,
+  .settings-shell article,
+  .superadmin-shell main > section,
+  .superadmin-shell main > div {
+    animation: none !important;
+  }
+
+  .admin-shell *,
+  .superadmin-shell *,
+  .pos-shell * {
+    transition-duration: 1ms !important;
+    animation-duration: 1ms !important;
+  }
+
+  .ui-overlay,
+  .ui-modal-panel,
+  .ui-drawer-panel,
+  .ui-list-item,
+  .ui-section-enter,
+  .ui-empty-state,
+  .ui-loading-state,
+  .ui-content-state {
+    animation: none !important;
+    transition: none !important;
+  }
 }

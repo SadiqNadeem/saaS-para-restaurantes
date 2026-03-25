@@ -1,8 +1,10 @@
-﻿import { useRef, useState } from "react";
+import { useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import Papa from "papaparse";
 
 import { supabase } from "../../lib/supabase";
+import { prepareImageWebp } from "../../lib/images/prepareImageWebp";
+import { uploadProductImage } from "../../lib/images/uploadProductImage";
 import { useRestaurant } from "../../restaurant/RestaurantContext";
 import { useAdminMembership } from "../components/AdminMembershipContext";
 
@@ -10,20 +12,43 @@ import { useAdminMembership } from "../components/AdminMembershipContext";
 
 type RawRow = Record<string, string>;
 
+type ParsedModifierGroup = { name: string; options: string[] };
+
 type ParsedRow = {
   categoria: string;
   nombre: string;
   price: number;
   descripcion: string;
+  imagen: string;
+  modificadores: ParsedModifierGroup[];
   error?: string;
 };
 
 type ImportResult = {
   imported: number;
-  errors: string[];
+  imagesOk: number;
+  groupsCreated: number;
+  errors: Array<{ product: string; reason: string }>;
 };
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
+
+function parseModifiers(raw: string): ParsedModifierGroup[] {
+  if (!raw.trim()) return [];
+  const groups: ParsedModifierGroup[] = [];
+  for (const part of raw.split("|")) {
+    const colonIdx = part.indexOf(":");
+    if (colonIdx === -1) continue;
+    const name = part.slice(0, colonIdx).trim();
+    const options = part
+      .slice(colonIdx + 1)
+      .split(",")
+      .map((o) => o.trim())
+      .filter(Boolean);
+    if (name && options.length > 0) groups.push({ name, options });
+  }
+  return groups;
+}
 
 function parseRows(raw: RawRow[]): ParsedRow[] {
   return raw.map((row): ParsedRow => {
@@ -32,13 +57,53 @@ function parseRows(raw: RawRow[]): ParsedRow[] {
     const precioRaw = (row.precio ?? "").replace(",", ".").trim();
     const price = parseFloat(precioRaw);
     const descripcion = (row.descripcion ?? "").trim();
+    const imagen = (row.imagen ?? "").trim();
+    const modificadores = parseModifiers(row.modificadores ?? "");
 
     let error: string | undefined;
     if (!nombre) error = "Nombre vacío";
     else if (isNaN(price) || price < 0) error = `Precio inválido: "${row.precio}"`;
 
-    return { categoria, nombre, price: isNaN(price) ? 0 : price, descripcion, error };
+    return {
+      categoria,
+      nombre,
+      price: isNaN(price) ? 0 : price,
+      descripcion,
+      imagen,
+      modificadores,
+      error,
+    };
   });
+}
+
+async function fetchAndUploadImage(
+  url: string,
+  restaurantId: string,
+  productId: string
+): Promise<string> {
+  const resp = await fetch(url, { mode: "cors" });
+  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+  const blob = await resp.blob();
+  const file = new File([blob], "image", { type: blob.type });
+  const webpBlob = await prepareImageWebp(file);
+  return uploadProductImage(supabase, restaurantId, productId, webpBlob);
+}
+
+const TEMPLATE_CSV = [
+  `categoria,nombre,precio,descripcion,imagen,modificadores`,
+  `Principales,Kebab de pollo,7.50,Con salsa especial,https://example.com/kebab.jpg,"Salsas:salsa roja,salsa blanca|Carne:pollo,mixto"`,
+  `Principales,Falafel,6.00,Vegano,,`,
+  `Bebidas,Agua,1.50,,,`,
+].join("\n");
+
+function downloadTemplate() {
+  const blob = new Blob([TEMPLATE_CSV], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "plantilla_menu.csv";
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 // ─── page ─────────────────────────────────────────────────────────────────────
@@ -67,12 +132,8 @@ export default function AdminImportPage() {
       header: true,
       skipEmptyLines: true,
       transformHeader: (h) => h.trim().toLowerCase().replace(/\s+/g, "_"),
-      complete: (results) => {
-        setRows(parseRows(results.data));
-      },
-      error: () => {
-        setRows([]);
-      },
+      complete: (results) => setRows(parseRows(results.data)),
+      error: () => setRows([]),
     });
   };
 
@@ -84,10 +145,12 @@ export default function AdminImportPage() {
     setImporting(true);
     setResult(null);
 
-    const errors: string[] = [];
+    const errors: ImportResult["errors"] = [];
     let imported = 0;
+    let imagesOk = 0;
+    let groupsCreated = 0;
 
-    // Group rows by category name
+    // Group rows by category
     const byCategory = new Map<string, ParsedRow[]>();
     for (const row of validRows) {
       const existing = byCategory.get(row.categoria) ?? [];
@@ -95,22 +158,33 @@ export default function AdminImportPage() {
       byCategory.set(row.categoria, existing);
     }
 
-    // Fetch existing categories for this restaurant
+    // Fetch existing categories
     const { data: existingCats } = await supabase
       .from("categories")
       .select("id, name, sort_order")
       .eq("restaurant_id", restaurantId);
 
-    const catMap = new Map<string, string>(); // name.toLowerCase() → id
-    let nextSortOrder = 0;
-
+    const catMap = new Map<string, string>();
+    let nextCatSort = 0;
     for (const cat of existingCats ?? []) {
       const c = cat as { id: string; name: string; sort_order: number };
       catMap.set(c.name.toLowerCase(), c.id);
-      if (c.sort_order >= nextSortOrder) nextSortOrder = c.sort_order + 1;
+      if (c.sort_order >= nextCatSort) nextCatSort = c.sort_order + 1;
     }
 
-    // Create missing categories and import products
+    // Fetch existing modifier groups
+    const { data: existingGroups } = await supabase
+      .from("modifier_groups")
+      .select("id, name")
+      .eq("restaurant_id", restaurantId);
+
+    const groupMap = new Map<string, string>(); // name.toLowerCase() → id
+    for (const g of existingGroups ?? []) {
+      const mg = g as { id: string; name: string };
+      groupMap.set(mg.name.toLowerCase(), mg.id);
+    }
+
+    // Process categories and products
     for (const [catName, products] of byCategory) {
       const catKey = catName.toLowerCase();
       let categoryId = catMap.get(catKey);
@@ -121,14 +195,19 @@ export default function AdminImportPage() {
           .insert({
             restaurant_id: restaurantId,
             name: catName,
-            sort_order: nextSortOrder++,
+            sort_order: nextCatSort++,
             is_active: true,
           })
           .select("id")
           .single();
 
         if (catErr || !newCat) {
-          errors.push(`Error creando categoría "${catName}": ${catErr?.message ?? "desconocido"}`);
+          for (const prod of products) {
+            errors.push({
+              product: prod.nombre,
+              reason: `Error creando categoría "${catName}": ${catErr?.message ?? "desconocido"}`,
+            });
+          }
           continue;
         }
 
@@ -136,7 +215,7 @@ export default function AdminImportPage() {
         catMap.set(catKey, categoryId);
       }
 
-      // Get current max sort_order in this category
+      // Max sort_order in this category
       const { data: maxRow } = await supabase
         .from("products")
         .select("sort_order")
@@ -149,26 +228,108 @@ export default function AdminImportPage() {
       let productSort = maxRow ? ((maxRow as { sort_order: number }).sort_order ?? 0) + 1 : 0;
 
       for (const prod of products) {
-        const { error: prodErr } = await supabase.from("products").insert({
-          restaurant_id: restaurantId,
-          category_id: categoryId,
-          name: prod.nombre,
-          price: prod.price,
-          description: prod.descripcion || null,
-          sort_order: productSort++,
-          is_active: true,
-        });
+        // Insert product (without image_url first)
+        const { data: newProd, error: prodErr } = await supabase
+          .from("products")
+          .insert({
+            restaurant_id: restaurantId,
+            category_id: categoryId,
+            name: prod.nombre,
+            price: prod.price,
+            description: prod.descripcion || null,
+            sort_order: productSort++,
+            is_active: true,
+          })
+          .select("id")
+          .single();
 
-        if (prodErr) {
-          errors.push(`Error importando "${prod.nombre}": ${prodErr.message}`);
-        } else {
-          imported++;
+        if (prodErr || !newProd) {
+          errors.push({
+            product: prod.nombre,
+            reason: prodErr?.message ?? "Error desconocido al insertar producto",
+          });
+          continue;
+        }
+
+        imported++;
+        const productId = (newProd as { id: string }).id;
+
+        // Upload image if provided
+        if (prod.imagen) {
+          try {
+            const imageUrl = await fetchAndUploadImage(prod.imagen, restaurantId, productId);
+            await supabase
+              .from("products")
+              .update({ image_url: imageUrl })
+              .eq("id", productId);
+            imagesOk++;
+          } catch (imgErr) {
+            errors.push({
+              product: prod.nombre,
+              reason: `Imagen no descargada: ${imgErr instanceof Error ? imgErr.message : "error de red"}`,
+            });
+          }
+        }
+
+        // Create / reuse modifier groups
+        let modSort = 0;
+        for (const group of prod.modificadores) {
+          const groupKey = group.name.toLowerCase();
+          let groupId = groupMap.get(groupKey);
+
+          if (!groupId) {
+            const { data: newGroup, error: groupErr } = await supabase
+              .from("modifier_groups")
+              .insert({
+                restaurant_id: restaurantId,
+                name: group.name,
+                min_select: 0,
+                max_select: 1,
+                is_active: true,
+                position: 0,
+              })
+              .select("id")
+              .single();
+
+            if (groupErr || !newGroup) {
+              errors.push({
+                product: prod.nombre,
+                reason: `Error creando grupo "${group.name}": ${groupErr?.message ?? "desconocido"}`,
+              });
+              continue;
+            }
+
+            groupId = (newGroup as { id: string }).id;
+            groupMap.set(groupKey, groupId);
+            groupsCreated++;
+
+            // Insert options for new group
+            const optionRows = group.options.map((opt, i) => ({
+              restaurant_id: restaurantId,
+              group_id: groupId as string,
+              name: opt,
+              price: 0,
+              is_active: true,
+              position: i,
+            }));
+            await supabase.from("modifier_options").insert(optionRows);
+          }
+
+          // Link group to product
+          await supabase.from("product_modifier_groups").insert({
+            product_id: productId,
+            group_id: groupId,
+            sort_order: modSort,
+            position: modSort,
+          });
+          modSort++;
         }
       }
     }
 
-    setResult({ imported, errors });
+    setResult({ imported, imagesOk, groupsCreated, errors });
     setImporting(false);
+
     if (imported > 0) {
       setRows([]);
       setFileName("");
@@ -210,20 +371,23 @@ export default function AdminImportPage() {
 
       {/* Upload + format guide */}
       <div style={{ ...cardStyle, display: "grid", gap: 16 }}>
-        <div style={{ marginBottom: 14 }}>
+        <div style={{ marginBottom: 4 }}>
           <strong style={{ fontSize: 14, color: "var(--admin-text-primary)" }}>
             Formato esperado
           </strong>
-          <p style={{ margin: "4px 0 8px", fontSize: 13, color: "var(--admin-text-secondary)" }}>
-            Primera fila: cabecera. Columnas:{" "}
-            <code style={codeStyle}>categoria, nombre, precio, descripcion</code>
+          <p style={{ margin: "4px 0 6px", fontSize: 13, color: "var(--admin-text-secondary)" }}>
+            Primera fila: cabecera. Columnas obligatorias:{" "}
+            <code style={codeStyle}>categoria, nombre, precio</code>. Opcionales:{" "}
+            <code style={codeStyle}>descripcion, imagen, modificadores</code>
           </p>
           <pre style={preStyle}>
-            {`categoria,nombre,precio,descripcion
-Principales,Kebab de pollo,7.50,Con salsa especial
-Principales,Falafel,6.00,
-Bebidas,Agua,1.50,`}
+{`categoria,nombre,precio,descripcion,imagen,modificadores
+Principales,Kebab de pollo,7.50,Con salsa especial,https://ejemplo.com/kebab.jpg,"Salsas:salsa roja,salsa blanca|Carne:pollo,mixto"
+Bebidas,Agua,1.50,,,`}
           </pre>
+          <p style={{ margin: "8px 0 0", fontSize: 12, color: "#94a3b8" }}>
+            El CSV antiguo de 4 columnas sigue funcionando. Si el campo modificadores contiene comas, rodéalo con comillas dobles.
+          </p>
         </div>
 
         <input
@@ -237,7 +401,7 @@ Bebidas,Agua,1.50,`}
           }}
         />
 
-        <div style={{ display: "grid", gap: 10 }}>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
@@ -245,7 +409,6 @@ Bebidas,Agua,1.50,`}
               ...btnSecondaryStyle,
               display: "inline-flex",
               alignItems: "center",
-              justifyContent: "center",
               gap: 8,
               padding: "11px 16px",
               borderRadius: 12,
@@ -253,41 +416,58 @@ Bebidas,Agua,1.50,`}
               background: fileName ? "#f0fdf4" : "#ffffff",
               color: fileName ? "#166534" : "#0f172a",
               fontWeight: 700,
-              boxShadow: fileName ? "0 6px 16px rgba(34, 197, 94, 0.14)" : "0 1px 2px rgba(15, 23, 42, 0.06)",
+              boxShadow: fileName
+                ? "0 6px 16px rgba(34, 197, 94, 0.14)"
+                : "0 1px 2px rgba(15, 23, 42, 0.06)",
             }}
           >
             <span aria-hidden="true" style={{ fontSize: 14 }}>↑</span>
             <span>{fileName ? "Archivo cargado" : "Seleccionar archivo CSV"}</span>
           </button>
 
-          {fileName ? (
-            <div
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 8,
-                width: "fit-content",
-                maxWidth: "100%",
-                border: "1px solid #bbf7d0",
-                borderRadius: 999,
-                background: "#f0fdf4",
-                color: "#166534",
-                padding: "6px 10px",
-                fontSize: 12,
-                fontWeight: 700,
-              }}
-            >
-              <span aria-hidden="true">✓</span>
-              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 420 }}>
-                {fileName}
-              </span>
-            </div>
-          ) : (
-            <span style={{ fontSize: 12, color: "#64748b" }}>
-              Sube un CSV con columnas: categoria, nombre, precio, descripcion.
-            </span>
-          )}
+          <button
+            type="button"
+            onClick={downloadTemplate}
+            style={{
+              ...btnSecondaryStyle,
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              padding: "9px 14px",
+              borderRadius: 10,
+              fontSize: 13,
+            }}
+          >
+            <span aria-hidden="true">↓</span> Descargar plantilla
+          </button>
         </div>
+
+        {fileName ? (
+          <div
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 8,
+              width: "fit-content",
+              border: "1px solid #bbf7d0",
+              borderRadius: 999,
+              background: "#f0fdf4",
+              color: "#166534",
+              padding: "6px 10px",
+              fontSize: 12,
+              fontWeight: 700,
+            }}
+          >
+            <span aria-hidden="true">✓</span>
+            <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 420 }}>
+              {fileName}
+            </span>
+          </div>
+        ) : (
+          <span style={{ fontSize: 12, color: "#64748b" }}>
+            6 columnas: categoria, nombre, precio, descripcion, imagen, modificadores
+          </span>
+        )}
       </div>
 
       {/* Preview table */}
@@ -331,7 +511,7 @@ Bebidas,Agua,1.50,`}
             <table style={tableStyle}>
               <thead>
                 <tr>
-                  {(["Estado", "Categoría", "Nombre", "Precio", "Descripción"] as const).map(
+                  {(["Estado", "Categoría", "Nombre", "Precio", "Descripción", "Imagen", "Modificadores"] as const).map(
                     (col) => (
                       <th key={col} style={thStyle}>
                         {col}
@@ -350,9 +530,7 @@ Bebidas,Agua,1.50,`}
                   >
                     <td style={tdStyle}>
                       {row.error ? (
-                        <span style={{ color: "#b91c1c", fontSize: 12 }}>
-                          ✕ {row.error}
-                        </span>
+                        <span style={{ color: "#b91c1c", fontSize: 12 }}>✕ {row.error}</span>
                       ) : (
                         <span style={{ color: "#15803d" }}>✓</span>
                       )}
@@ -362,8 +540,24 @@ Bebidas,Agua,1.50,`}
                     <td style={{ ...tdStyle, whiteSpace: "nowrap" }}>
                       {row.error && row.price === 0 ? "—" : `${row.price.toFixed(2)} €`}
                     </td>
-                    <td style={{ ...tdStyle, color: "var(--admin-text-secondary)", maxWidth: 240 }}>
+                    <td style={{ ...tdStyle, color: "var(--admin-text-secondary)", maxWidth: 200 }}>
                       {row.descripcion || "—"}
+                    </td>
+                    <td style={{ ...tdStyle, whiteSpace: "nowrap" }}>
+                      {row.imagen ? (
+                        <span style={{ color: "#1d4ed8", fontSize: 12 }}>↗ URL</span>
+                      ) : (
+                        <span style={{ color: "#9ca3af" }}>—</span>
+                      )}
+                    </td>
+                    <td style={{ ...tdStyle, whiteSpace: "nowrap" }}>
+                      {row.modificadores.length > 0 ? (
+                        <span style={{ color: "#7c3aed", fontSize: 12 }}>
+                          {row.modificadores.length} grupo{row.modificadores.length !== 1 ? "s" : ""}
+                        </span>
+                      ) : (
+                        <span style={{ color: "#9ca3af" }}>—</span>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -382,23 +576,28 @@ Bebidas,Agua,1.50,`}
             background: result.errors.length === 0 ? "#f0fdf4" : "#fff",
           }}
         >
-          <div
-            style={{
-              fontWeight: 700,
-              fontSize: 15,
-              color: result.imported > 0 ? "#15803d" : "var(--admin-text-primary)",
-              marginBottom: result.errors.length > 0 ? 10 : 0,
-            }}
-          >
-            {result.imported > 0
-              ? `✓ ${result.imported} producto${result.imported !== 1 ? "s" : ""} importado${result.imported !== 1 ? "s" : ""} correctamente`
-              : "No se importó ningún producto"}
+          <div style={{ display: "grid", gap: 6, marginBottom: result.errors.length > 0 ? 12 : 0 }}>
+            <div style={{ fontWeight: 700, fontSize: 15, color: result.imported > 0 ? "#15803d" : "#374151" }}>
+              {result.imported > 0
+                ? `✓ ${result.imported} producto${result.imported !== 1 ? "s" : ""} importado${result.imported !== 1 ? "s" : ""} correctamente`
+                : "No se importó ningún producto"}
+            </div>
+            {result.imagesOk > 0 && (
+              <div style={{ fontSize: 13, color: "#1d4ed8" }}>
+                ↗ {result.imagesOk} imagen{result.imagesOk !== 1 ? "es" : ""} descargada{result.imagesOk !== 1 ? "s" : ""}
+              </div>
+            )}
+            {result.groupsCreated > 0 && (
+              <div style={{ fontSize: 13, color: "#7c3aed" }}>
+                + {result.groupsCreated} grupo{result.groupsCreated !== 1 ? "s" : ""} de modificadores creado{result.groupsCreated !== 1 ? "s" : ""}
+              </div>
+            )}
           </div>
           {result.errors.length > 0 ? (
             <ul style={{ margin: 0, paddingLeft: 18, display: "grid", gap: 4 }}>
               {result.errors.map((e, i) => (
                 <li key={i} style={{ fontSize: 13, color: "#b91c1c" }}>
-                  {e}
+                  <strong>{e.product}</strong>: {e.reason}
                 </li>
               ))}
             </ul>
@@ -436,7 +635,7 @@ const preStyle: CSSProperties = {
   border: "1px solid #dbe2ea",
   borderRadius: 12,
   padding: "14px 16px",
-  margin: 0,
+  margin: "8px 0 0",
   overflowX: "auto",
   color: "#334155",
   lineHeight: 1.6,
@@ -489,4 +688,3 @@ const tdStyle: CSSProperties = {
   color: "var(--admin-text-primary)",
   verticalAlign: "top",
 };
-

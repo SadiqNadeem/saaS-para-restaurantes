@@ -14,6 +14,7 @@ export const DEFAULT_PRINT_SETTINGS: PrintSettings = {
   autoPrintPosOrders: false,
   printOnNewOrder: false,
   printOnAccept: false,
+  printKitchenSeparate: false,
 };
 
 type UsePrintSettingsReturn = {
@@ -32,7 +33,7 @@ export function usePrintSettings(restaurantId: string): UsePrintSettingsReturn {
     void supabase
       .from("restaurant_settings")
       .select(
-        "print_mode, print_width, rawbt_enabled, local_print_url, desktop_app_url, kitchen_printer_name, customer_printer_name, auto_print_web_orders, auto_print_pos_orders, print_on_new_order, print_on_accept, auto_print_on_accept, auto_print_pos"
+        "print_mode, print_width, rawbt_enabled, local_print_url, desktop_app_url, kitchen_printer_name, customer_printer_name, auto_print_web_orders, auto_print_pos_orders, print_on_new_order, print_on_accept, auto_print_on_accept, auto_print_pos, print_kitchen_separate"
       )
       .eq("restaurant_id", restaurantId)
       .maybeSingle()
@@ -59,6 +60,7 @@ export function usePrintSettings(restaurantId: string): UsePrintSettingsReturn {
             row.print_on_new_order === true || row.auto_print_web_orders === true,
           printOnAccept:
             row.auto_print_on_accept === true || row.print_on_accept === true,
+          printKitchenSeparate: row.print_kitchen_separate === true,
         });
       });
   }, [restaurantId]);

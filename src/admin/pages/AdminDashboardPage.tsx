@@ -63,6 +63,10 @@ type HourlyPoint = {
   pedidos: number;
 };
 
+type ComparisonValue = { orders: number; revenue: number; avgTicket: number };
+type ComparisonStats = { today: ComparisonValue; lastWeek: ComparisonValue };
+type WeeklyBarPoint = { day: string; estaS: number; semAnt: number };
+
 const STATUS_MAP: Record<string, { label: string; bg: string; color: string }> = {
   pending: { label: "Pendiente", bg: "#fef3c7", color: "#92400e" },
   accepted: { label: "Aceptado", bg: "#dbeafe", color: "#1e40af" },
@@ -229,14 +233,9 @@ const EMPTY_DATA: MetricsData = {
   timeseries: [],
 };
 
-function buildHourlyData(orders: { created_at: string | null }[]): HourlyPoint[] {
-  const counts = Array<number>(24).fill(0);
-  for (const o of orders) {
-    if (!o.created_at) continue;
-    const h = new Date(o.created_at).getHours();
-    if (h >= 0 && h < 24) counts[h]++;
-  }
-  return counts.map((pedidos, i) => ({ hour: `${String(i).padStart(2, "0")}h`, pedidos }));
+function deltaPct(today: number, lastWeek: number): number | null {
+  if (lastWeek === 0) return null;
+  return ((today - lastWeek) / lastWeek) * 100;
 }
 
 export default function AdminDashboardPage() {
@@ -249,9 +248,14 @@ export default function AdminDashboardPage() {
   const [isAcceptingOrders, setIsAcceptingOrders] = useState<boolean | null>(null);
   const [recentOrders, setRecentOrders] = useState<RecentOrder[]>([]);
   const [hourlyData, setHourlyData] = useState<HourlyPoint[]>([]);
-  const [loadingHourly, setLoadingHourly] = useState(false);
   const [setup, setSetup] = useState<SetupStatus>(SETUP_EMPTY);
   const [abandonedStats, setAbandonedStats] = useState<{ total: number; recovered: number; rate: number } | null>(null);
+  const [reviewsStats, setReviewsStats] = useState<{ total: number; avg: number; dist: number[] } | null>(null);
+
+  // New: comparison & weekly chart state
+  const [compStats, setCompStats] = useState<ComparisonStats | null>(null);
+  const [weeklyBarData, setWeeklyBarData] = useState<WeeklyBarPoint[]>([]);
+  const [loading14d, setLoading14d] = useState(true);
 
   // Metrics RPC
   useEffect(() => {
@@ -429,44 +433,111 @@ export default function AdminDashboardPage() {
     return () => { alive = false; };
   }, [restaurantId]);
 
-  // Hourly breakdown - only when viewing "today"
+  // Reviews summary
   useEffect(() => {
-    if (rangeKey !== "today") {
-      setHourlyData([]);
-      return;
-    }
-
     let alive = true;
-    setLoadingHourly(true);
+
+    const load = async () => {
+      const { data } = await supabase
+        .from("reviews")
+        .select("rating")
+        .eq("restaurant_id", restaurantId)
+        .limit(200);
+
+      if (!alive) return;
+      const rows = Array.isArray(data) ? (data as { rating: number }[]) : [];
+      if (rows.length === 0) return;
+
+      const dist = [1, 2, 3, 4, 5].map((s) => rows.filter((r) => r.rating === s).length);
+      const avg = rows.reduce((sum, r) => sum + r.rating, 0) / rows.length;
+      setReviewsStats({ total: rows.length, avg, dist });
+    };
+
+    void load();
+    return () => { alive = false; };
+  }, [restaurantId]);
+
+  // 14-day data: comparison stats + weekly chart + peak hours
+  useEffect(() => {
+    let alive = true;
+    setLoading14d(true);
 
     const now = new Date();
-    const todayStart = startOfDay(now).toISOString();
-    const tomorrowStart = addDays(startOfDay(now), 1).toISOString();
+    const from = addDays(startOfDay(now), -13);
+    const to = addDays(startOfDay(now), 1);
+    const todayStr = toDateParam(startOfDay(now));
+    const lastWeekStr = toDateParam(addDays(startOfDay(now), -7));
 
     supabase
       .from("orders")
-      .select("created_at")
+      .select("created_at,total")
       .eq("restaurant_id", restaurantId)
       .neq("status", "cancelled")
-      .gte("created_at", todayStart)
-      .lt("created_at", tomorrowStart)
+      .gte("created_at", from.toISOString())
+      .lt("created_at", to.toISOString())
       .then(({ data }) => {
         if (!alive) return;
-        const orders = Array.isArray(data) ? (data as { created_at: string | null }[]) : [];
-        setHourlyData(buildHourlyData(orders));
-        setLoadingHourly(false);
+
+        const orders = (Array.isArray(data) ? data : []) as { created_at: string | null; total: number | null }[];
+
+        const summarize = (os: typeof orders): ComparisonValue => {
+          const count = os.length;
+          const rev = os.reduce((s, o) => s + (o.total ?? 0), 0);
+          return { orders: count, revenue: rev, avgTicket: count > 0 ? rev / count : 0 };
+        };
+
+        const todayOrders = orders.filter(
+          (o) => o.created_at && toDateParam(new Date(o.created_at)) === todayStr
+        );
+        const lastWeekOrders = orders.filter(
+          (o) => o.created_at && toDateParam(new Date(o.created_at)) === lastWeekStr
+        );
+        setCompStats({ today: summarize(todayOrders), lastWeek: summarize(lastWeekOrders) });
+
+        // Weekly bar: last 7 days vs prior 7 days
+        const weeklyPoints: WeeklyBarPoint[] = [];
+        for (let i = 6; i >= 0; i--) {
+          const thisDay = addDays(startOfDay(now), -i);
+          const prevDay = addDays(startOfDay(now), -i - 7);
+          const thisDayStr = toDateParam(thisDay);
+          const prevDayStr = toDateParam(prevDay);
+          const estaS = orders
+            .filter((o) => o.created_at && toDateParam(new Date(o.created_at)) === thisDayStr)
+            .reduce((s, o) => s + (o.total ?? 0), 0);
+          const semAnt = orders
+            .filter((o) => o.created_at && toDateParam(new Date(o.created_at)) === prevDayStr)
+            .reduce((s, o) => s + (o.total ?? 0), 0);
+          weeklyPoints.push({
+            day: new Intl.DateTimeFormat("es-ES", { weekday: "short" }).format(thisDay),
+            estaS,
+            semAnt,
+          });
+        }
+        setWeeklyBarData(weeklyPoints);
+
+        // Hourly distribution (last 14 days, only hours with ≥1 order)
+        const counts = Array<number>(24).fill(0);
+        for (const o of orders) {
+          if (!o.created_at) continue;
+          const h = new Date(o.created_at).getHours();
+          if (h >= 0 && h < 24) counts[h]++;
+        }
+        setHourlyData(
+          counts
+            .map((pedidos, i) => ({ hour: `${String(i).padStart(2, "0")}h`, pedidos }))
+            .filter((p) => p.pedidos > 0)
+        );
+
+        setLoading14d(false);
       });
 
-    return () => {
-      alive = false;
-    };
-  }, [rangeKey, restaurantId]);
+    return () => { alive = false; };
+  }, [restaurantId]);
 
   const maxOrders = useMemo(() => Math.max(1, ...metrics.timeseries.map((p) => p.orders)), [metrics.timeseries]);
 
   const isNotAccepting = isAcceptingOrders === false;
 
-  // Checklist items - "Restaurante creado" is always done
   const checklistItems = setup.loaded
     ? [
         { label: "Restaurante creado", done: true, link: null },
@@ -524,7 +595,6 @@ export default function AdminDashboardPage() {
             </span>
           </div>
 
-          {/* Progress bar */}
           <div
             style={{
               height: 4,
@@ -563,9 +633,7 @@ export default function AdminDashboardPage() {
                     width: 18,
                     height: 18,
                     borderRadius: "50%",
-                    border: item.done
-                      ? "none"
-                      : "1.5px solid #d1d5db",
+                    border: item.done ? "none" : "1.5px solid #d1d5db",
                     background: item.done ? "var(--color-success, #16a34a)" : "#fff",
                     display: "inline-flex",
                     alignItems: "center",
@@ -675,23 +743,123 @@ export default function AdminDashboardPage() {
         </div>
       ) : null}
 
-      {/* Header + range selector */}
-      <header style={{ display: "grid", gap: 8 }}>
-        <h2 style={{ margin: 0 }}>Dashboard</h2>
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          {(["today", "7d", "30d"] as RangeKey[]).map((key) => (
-            <button
-              key={key}
-              type="button"
-              onClick={() => setRangeKey(key)}
-              disabled={loading}
-              style={rangeButtonStyle(rangeKey === key)}
+      {/* Reviews summary widget */}
+      {reviewsStats !== null && reviewsStats.total > 0 ? (
+        <div
+          style={{
+            border: "1px solid #e5e7eb",
+            background: "#fff",
+            borderRadius: 12,
+            padding: "14px 16px",
+            display: "grid",
+            gap: 10,
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+            <div>
+              <div style={{ fontWeight: 700, fontSize: 14, color: "#111827" }}>Reseñas de clientes</div>
+              <div style={{ fontSize: 13, color: "#6b7280", marginTop: 2 }}>
+                <span style={{ color: "#f59e0b", fontWeight: 700, fontSize: 18 }}>{reviewsStats.avg.toFixed(1)}</span>
+                <span style={{ color: "#f59e0b", marginLeft: 4 }}>★★★★★</span>
+                <span style={{ marginLeft: 6, color: "#9ca3af" }}>({reviewsStats.total} reseñas)</span>
+              </div>
+            </div>
+            <Link
+              to={`${adminPath}/reviews`}
+              style={{
+                background: "#f3f4f6",
+                color: "#374151",
+                borderRadius: 8,
+                padding: "6px 12px",
+                fontSize: 13,
+                fontWeight: 600,
+                textDecoration: "none",
+                whiteSpace: "nowrap",
+                border: "1px solid #e5e7eb",
+              }}
             >
-              {key === "today" ? "Hoy" : key === "7d" ? "Ultimos 7 dias" : "Ultimos 30 dias"}
-            </button>
-          ))}
+              Ver todas
+            </Link>
+          </div>
+          <div style={{ display: "grid", gap: 4 }}>
+            {[5, 4, 3, 2, 1].map((star) => {
+              const count = reviewsStats.dist[star - 1];
+              const pct = reviewsStats.total > 0 ? (count / reviewsStats.total) * 100 : 0;
+              return (
+                <div key={star} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12 }}>
+                  <span style={{ color: "#6b7280", width: 16, textAlign: "right", flexShrink: 0 }}>{star}</span>
+                  <span style={{ color: "#f59e0b", flexShrink: 0 }}>★</span>
+                  <div style={{ flex: 1, height: 8, background: "#f3f4f6", borderRadius: 4, overflow: "hidden" }}>
+                    <div
+                      style={{
+                        height: "100%",
+                        width: `${pct}%`,
+                        background: "#f59e0b",
+                        borderRadius: 4,
+                        transition: "width 0.3s ease",
+                      }}
+                    />
+                  </div>
+                  <span style={{ color: "#9ca3af", width: 24, textAlign: "right", flexShrink: 0 }}>{count}</span>
+                </div>
+              );
+            })}
+          </div>
         </div>
-      </header>
+      ) : null}
+
+      {/* ── Comparison stat cards: today vs same day last week ── */}
+      <div>
+        <h2 style={{ margin: "0 0 10px", fontSize: 16 }}>Dashboard</h2>
+        {compStats !== null ? (
+          <div style={cardsWrapStyle}>
+            <ComparisonStatCard
+              label="Ventas hoy"
+              todayVal={compStats.today.revenue}
+              lastWeekVal={compStats.lastWeek.revenue}
+              format={formatMoney}
+            />
+            <ComparisonStatCard
+              label="Pedidos hoy"
+              todayVal={compStats.today.orders}
+              lastWeekVal={compStats.lastWeek.orders}
+              format={formatInt}
+            />
+            <ComparisonStatCard
+              label="Ticket medio"
+              todayVal={compStats.today.avgTicket}
+              lastWeekVal={compStats.lastWeek.avgTicket}
+              format={formatMoney}
+            />
+            {reviewsStats !== null && reviewsStats.total > 0 ? (
+              <article style={statCardBase}>
+                <div style={statCardLabel}>Reseñas</div>
+                <strong style={{ color: "#f59e0b", fontSize: 26, lineHeight: 1.1, fontWeight: 800 }}>
+                  {reviewsStats.avg.toFixed(1)} ★
+                </strong>
+                <div style={{ fontSize: 12, color: "#9ca3af" }}>{reviewsStats.total} reseñas en total</div>
+              </article>
+            ) : null}
+          </div>
+        ) : (
+          <div style={{ opacity: 0.6, fontSize: 13 }}>Cargando comparativa...</div>
+        )}
+      </div>
+
+      {/* Range selector for the metrics section below */}
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        {(["today", "7d", "30d"] as RangeKey[]).map((key) => (
+          <button
+            key={key}
+            type="button"
+            onClick={() => setRangeKey(key)}
+            disabled={loading}
+            style={rangeButtonStyle(rangeKey === key)}
+          >
+            {key === "today" ? "Hoy" : key === "7d" ? "Ultimos 7 dias" : "Ultimos 30 dias"}
+          </button>
+        ))}
+      </div>
 
       {loading ? <div style={{ opacity: 0.8, fontSize: 14 }}>Cargando metricas...</div> : null}
 
@@ -721,46 +889,89 @@ export default function AdminDashboardPage() {
         </span>
       </div>
 
-      {/* Hourly chart - today only */}
-      {rangeKey === "today" ? (
-        <section style={panelStyle}>
-          <h3 style={{ margin: "0 0 12px", fontSize: 15 }}>Pedidos por hora - hoy</h3>
-          {loadingHourly ? (
-            <div style={{ opacity: 0.7, fontSize: 13 }}>Cargando...</div>
-          ) : (
-            <ResponsiveContainer width="100%" height={180}>
-              <BarChart data={hourlyData} margin={{ top: 4, right: 4, left: -18, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
-                <XAxis
-                  dataKey="hour"
-                  tick={{ fontSize: 10, fill: "#9ca3af" }}
-                  interval={3}
-                  axisLine={false}
-                  tickLine={false}
-                />
-                <YAxis
-                  allowDecimals={false}
-                  tick={{ fontSize: 10, fill: "#9ca3af" }}
-                  axisLine={false}
-                  tickLine={false}
-                  width={28}
-                />
-                <Tooltip
-                  contentStyle={{ borderRadius: 8, border: "1px solid #e5e7eb", fontSize: 12 }}
-                  formatter={(value) => [value, "Pedidos"]}
-                  cursor={{ fill: "rgba(23,33,43,0.06)" }}
-                />
-                <Bar
-                  dataKey="pedidos"
-                  fill="var(--brand-primary)"
-                  radius={[4, 4, 0, 0]}
-                  maxBarSize={32}
-                />
-              </BarChart>
-            </ResponsiveContainer>
-          )}
-        </section>
-      ) : null}
+      {/* ── Weekly sales comparison chart ── */}
+      <section style={panelStyle}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
+          <h3 style={{ margin: 0, fontSize: 15 }}>Ventas — esta semana vs semana anterior</h3>
+          <div style={{ display: "flex", gap: 14, fontSize: 12, color: "#6b7280" }}>
+            <span style={{ display: "flex", alignItems: "center", gap: 5 }}>
+              <span style={{ width: 10, height: 10, borderRadius: 2, background: "var(--brand-primary)", display: "inline-block", flexShrink: 0 }} />
+              Esta semana
+            </span>
+            <span style={{ display: "flex", alignItems: "center", gap: 5 }}>
+              <span style={{ width: 10, height: 10, borderRadius: 2, background: "#d1d5db", display: "inline-block", flexShrink: 0 }} />
+              Semana anterior
+            </span>
+          </div>
+        </div>
+        {weeklyBarData.length === 0 ? (
+          <div style={{ opacity: 0.7, fontSize: 13 }}>Sin datos para las últimas 2 semanas.</div>
+        ) : (
+          <ResponsiveContainer width="100%" height={200}>
+            <BarChart data={weeklyBarData} margin={{ top: 4, right: 4, left: -4, bottom: 0 }} barCategoryGap="25%">
+              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
+              <XAxis dataKey="day" tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={false} tickLine={false} />
+              <YAxis
+                tick={{ fontSize: 10, fill: "#9ca3af" }}
+                axisLine={false}
+                tickLine={false}
+                width={52}
+                tickFormatter={(v: number) => `${v}€`}
+              />
+              <Tooltip
+                contentStyle={{ borderRadius: 8, border: "1px solid #e5e7eb", fontSize: 12 }}
+                formatter={(value: number, name: string) => [
+                  formatMoney(value),
+                  name === "estaS" ? "Esta semana" : "Semana anterior",
+                ]}
+                cursor={{ fill: "rgba(23,33,43,0.04)" }}
+              />
+              <Bar dataKey="estaS" name="Esta semana" fill="var(--brand-primary)" radius={[3, 3, 0, 0]} maxBarSize={26} />
+              <Bar dataKey="semAnt" name="Semana anterior" fill="#d1d5db" radius={[3, 3, 0, 0]} maxBarSize={26} />
+            </BarChart>
+          </ResponsiveContainer>
+        )}
+      </section>
+
+      {/* ── Peak hours chart — last 14 days ── */}
+      <section style={panelStyle}>
+        <h3 style={{ margin: "0 0 12px", fontSize: 15 }}>Hora punta — últimas 2 semanas</h3>
+        {loading14d ? (
+          <div style={{ opacity: 0.7, fontSize: 13 }}>Cargando...</div>
+        ) : hourlyData.length === 0 ? (
+          <div style={{ opacity: 0.75, fontSize: 13 }}>Sin pedidos en los últimos 14 días.</div>
+        ) : (
+          <ResponsiveContainer width="100%" height={180}>
+            <BarChart data={hourlyData} margin={{ top: 4, right: 4, left: -18, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
+              <XAxis
+                dataKey="hour"
+                tick={{ fontSize: 10, fill: "#9ca3af" }}
+                axisLine={false}
+                tickLine={false}
+              />
+              <YAxis
+                allowDecimals={false}
+                tick={{ fontSize: 10, fill: "#9ca3af" }}
+                axisLine={false}
+                tickLine={false}
+                width={28}
+              />
+              <Tooltip
+                contentStyle={{ borderRadius: 8, border: "1px solid #e5e7eb", fontSize: 12 }}
+                formatter={(value) => [value, "Pedidos"]}
+                cursor={{ fill: "rgba(23,33,43,0.06)" }}
+              />
+              <Bar
+                dataKey="pedidos"
+                fill="var(--brand-primary)"
+                radius={[4, 4, 0, 0]}
+                maxBarSize={32}
+              />
+            </BarChart>
+          </ResponsiveContainer>
+        )}
+      </section>
 
       {/* Daily orders chart - all ranges */}
       <section style={panelStyle}>
@@ -785,7 +996,7 @@ export default function AdminDashboardPage() {
         )}
       </section>
 
-            {/* Recent orders */}
+      {/* Recent orders */}
       <section style={panelStyle}>
         <style>{`
           .dashboard-order-row {
@@ -912,6 +1123,60 @@ function StatCard({ label, value, accent = false }: { label: string; value: stri
   );
 }
 
+function ComparisonStatCard({
+  label,
+  todayVal,
+  lastWeekVal,
+  format,
+}: {
+  label: string;
+  todayVal: number;
+  lastWeekVal: number;
+  format: (v: number) => string;
+}) {
+  const delta = deltaPct(todayVal, lastWeekVal);
+  const up = delta !== null && delta >= 0;
+
+  return (
+    <article style={statCardBase}>
+      <div style={statCardLabel}>{label}</div>
+      <strong style={{ color: "#111827", fontSize: 26, lineHeight: 1.1, fontWeight: 800 }}>
+        {format(todayVal)}
+      </strong>
+      {delta !== null ? (
+        <div style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12 }}>
+          <span style={{ color: up ? "#16a34a" : "#dc2626", fontWeight: 700 }}>
+            {up ? "↑" : "↓"} {Math.abs(delta).toFixed(1)}%
+          </span>
+          <span style={{ color: "#9ca3af" }}>vs sem. anterior</span>
+        </div>
+      ) : (
+        <div style={{ fontSize: 12, color: "#9ca3af" }}>
+          {lastWeekVal === 0 ? "Sin datos sem. anterior" : ""}
+        </div>
+      )}
+    </article>
+  );
+}
+
+const statCardBase: CSSProperties = {
+  border: "1px solid #e5e7eb",
+  borderRadius: 12,
+  background: "#fff",
+  padding: "14px 16px",
+  display: "grid",
+  gap: 6,
+  boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
+};
+
+const statCardLabel: CSSProperties = {
+  color: "#6b7280",
+  fontSize: 11,
+  textTransform: "uppercase",
+  letterSpacing: 0.5,
+  fontWeight: 600,
+};
+
 function rangeButtonStyle(active: boolean): CSSProperties {
   return {
     borderRadius: 8,
@@ -1004,4 +1269,3 @@ const barLabelStyle: CSSProperties = {
   fontSize: 10,
   color: "#9ca3af",
 };
-

@@ -1,6 +1,7 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, Navigate, Outlet, Route, Routes } from "react-router-dom";
+import ErrorBoundary from "./components/ErrorBoundary";
 
 // ── Layouts ──────────────────────────────────────────────────────────────────
 import AdminLayout from "./admin/AdminLayout";
@@ -16,6 +17,8 @@ import SuperadminGuard from "./auth/guards/SuperadminGuard";
 
 // ── Gate components (per-restaurant access checks) ───────────────────────────
 import AdminGate from "./admin/components/AdminGate";
+import AdminRoleGuard from "./admin/components/AdminRoleGuard";
+import SubscriptionGuard from "./admin/components/SubscriptionGuard";
 import FeatureRouteGuard from "./admin/components/FeatureRouteGuard";
 import PosGate from "./pos/components/PosGate";
 
@@ -44,6 +47,7 @@ import AdminWebCustomizationPage from "./admin/pages/AdminWebCustomizationPage";
 import AdminWhatsAppPage from "./admin/pages/AdminWhatsAppPage";
 import AdminOrderDetailPage from "./features/admin/pages/AdminOrderDetailPage";
 import AdminSupportPage from "./admin/pages/AdminSupportPage";
+import AdminBillingPage from "./admin/pages/AdminBillingPage";
 import AdminDiagnosticsPage from "./admin/pages/AdminDiagnosticsPage";
 import AdminHelpCenterPage from "./admin/pages/AdminHelpCenterPage";
 
@@ -66,7 +70,7 @@ import App from "./App";
 import TableMenuPage from "./pages/TableMenuPage";
 import LandingPage from "./pages/LandingPage";
 import NotFoundPage from "./pages/NotFoundPage";
-import Login from "./pages/Login";
+import LoginPage from "./pages/LoginPage";
 import Onboarding from "./pages/Onboarding";
 import Register from "./pages/Register";
 import ForgotPassword from "./pages/ForgotPassword";
@@ -74,6 +78,7 @@ import ResetPassword from "./pages/ResetPassword";
 import AuthCallback from "./pages/AuthCallback";
 import OrderTrackingPage from "./pages/OrderTrackingPage";
 import StripeCheckoutReturnPage from "./features/checkout/ui/StripeCheckoutReturnPage";
+import InviteAcceptPage from "./pages/InviteAcceptPage";
 
 // ── Providers & context ───────────────────────────────────────────────────────
 import { AuthProvider } from "./auth/AuthContext";
@@ -81,13 +86,27 @@ import { AdminRestaurantProvider } from "./admin/context/AdminRestaurantContext"
 import { RestaurantProvider } from "./restaurant/RestaurantContext";
 import { getRestaurantSlug } from "./restaurant/getRestaurantSlug";
 
+// @ts-ignore — archivo JS sin tipos (intencional)
+import GestionApp from "./gestion/GestionApp";
 import "./index.css";
+
+// ── Handler global: promesas rechazadas sin capturar ─────────────────────────
+// Evita que un `.catch()` olvidado rompa silenciosamente la app.
+// En producción: punto de enganche para Sentry u otro servicio de logging.
+window.addEventListener("unhandledrejection", (event) => {
+  if (import.meta.env.DEV) {
+    console.error("[Unhandled Promise Rejection]", event.reason);
+  }
+  // Sentry.captureException(event.reason)  ← añadir aquí cuando se integre
+  event.preventDefault(); // evita el log de error en consola de producción
+});
 
 // Detect subdomain mode once at startup (static, doesn't change during session)
 const initialSlug = getRestaurantSlug();
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
+    <ErrorBoundary context="root">
     <AuthProvider>
       <AdminRestaurantProvider>
         <BrowserRouter>
@@ -98,8 +117,8 @@ createRoot(document.getElementById("root")!).render(
                 In subdomain mode: "/" shows the storefront directly. */}
             {initialSlug.usesSubdomain ? (
               <Route element={<RestaurantProvider><Outlet /></RestaurantProvider>}>
-                <Route path="/" element={<App />} />
-                <Route path="/checkout" element={<App />} />
+                <Route path="/" element={<ErrorBoundary context="checkout"><App /></ErrorBoundary>} />
+                <Route path="/checkout" element={<ErrorBoundary context="checkout"><App /></ErrorBoundary>} />
                 <Route path="/checkout/success" element={<StripeCheckoutReturnPage mode="success" />} />
                 <Route path="/checkout/cancel" element={<StripeCheckoutReturnPage mode="cancel" />} />
                 <Route path="/pedido/:orderId" element={<OrderTrackingPage />} />
@@ -111,12 +130,13 @@ createRoot(document.getElementById("root")!).render(
 
             {/* ── AUTH ROUTES ─────────────────────────────────────────────────
                 GuestGuard redirects already-logged-in users to their dashboard. */}
-            <Route path="/login" element={<GuestGuard><Login /></GuestGuard>} />
+            <Route path="/login" element={<GuestGuard><LoginPage /></GuestGuard>} />
             <Route path="/register" element={<GuestGuard><Register /></GuestGuard>} />
             <Route path="/forgot-password" element={<GuestGuard><ForgotPassword /></GuestGuard>} />
             <Route path="/reset-password" element={<ResetPassword />} />
             <Route path="/auth/callback" element={<AuthCallback />} />
             <Route path="/onboarding" element={<AuthGuard><Onboarding /></AuthGuard>} />
+            <Route path="/invite/:token" element={<InviteAcceptPage />} />
 
             {/* ── SUPERADMIN ──────────────────────────────────────────────────*/}
             <Route
@@ -145,8 +165,8 @@ createRoot(document.getElementById("root")!).render(
               element={<RestaurantProvider><Outlet /></RestaurantProvider>}
             >
               {/* Storefront (public) */}
-              <Route index element={<App />} />
-              <Route path="checkout" element={<App />} />
+              <Route index element={<ErrorBoundary context="checkout"><App /></ErrorBoundary>} />
+              <Route path="checkout" element={<ErrorBoundary context="checkout"><App /></ErrorBoundary>} />
               <Route path="checkout/success" element={<StripeCheckoutReturnPage mode="success" />} />
               <Route path="checkout/cancel" element={<StripeCheckoutReturnPage mode="cancel" />} />
               <Route path="pedido/:orderId" element={<OrderTrackingPage />} />
@@ -156,45 +176,56 @@ createRoot(document.getElementById("root")!).render(
               <Route
                 path="admin"
                 element={
+                  <ErrorBoundary context="admin">
                   <AdminGuard>
                     <AdminGate>
-                      <AdminLayout />
+                      <SubscriptionGuard>
+                        <AdminLayout />
+                      </SubscriptionGuard>
                     </AdminGate>
                   </AdminGuard>
+                  </ErrorBoundary>
                 }
               >
                 <Route index element={<AdminDashboardPage />} />
                 <Route path="dashboard" element={<AdminDashboardPage />} />
-                <Route path="metrics" element={<FeatureRouteGuard featureKey="metrics"><AdminMetricsPage /></FeatureRouteGuard>} />
+                {/* ── Rutas accesibles por todos los miembros activos ── */}
                 <Route path="orders" element={<FeatureRouteGuard featureKey="online_ordering"><AdminOrdersPage /></FeatureRouteGuard>} />
                 <Route path="orders/:id" element={<FeatureRouteGuard featureKey="online_ordering"><AdminOrderDetailPage /></FeatureRouteGuard>} />
                 <Route path="caja" element={<FeatureRouteGuard featureKey="pos"><AdminPosPage /></FeatureRouteGuard>} />
                 <Route path="pos" element={<FeatureRouteGuard featureKey="pos"><Navigate to="../caja" replace /></FeatureRouteGuard>} />
                 <Route path="tpv" element={<FeatureRouteGuard featureKey="pos"><Navigate to="../../pos" replace /></FeatureRouteGuard>} />
-                <Route path="categories" element={<AdminCategoriesPage />} />
-                <Route path="products" element={<AdminProductsPage />} />
-                <Route path="products/:id/modifiers" element={<AdminProductModifiersPage />} />
-                <Route path="modifiers" element={<AdminModifiersPage />} />
-                <Route path="coupons" element={<FeatureRouteGuard featureKey="coupons"><AdminCouponsPage /></FeatureRouteGuard>} />
-                <Route path="loyalty" element={<FeatureRouteGuard featureKey="loyalty"><AdminLoyaltyPage /></FeatureRouteGuard>} />
-                <Route path="reviews" element={<AdminReviewsPage />} />
-                <Route path="abandoned-carts" element={<AdminAbandonedCartsPage />} />
-                <Route path="whatsapp" element={<FeatureRouteGuard featureKey="whatsapp_chatbot"><AdminWhatsAppPage /></FeatureRouteGuard>} />
-                <Route path="settings" element={<AdminSettingsPage />} />
-                <Route path="web-customization" element={<FeatureRouteGuard featureKey="website_customization"><AdminWebCustomizationPage /></FeatureRouteGuard>} />
-                <Route path="team" element={<FeatureRouteGuard featureKey="staff_roles"><AdminTeamPage /></FeatureRouteGuard>} />
-                <Route path="logs" element={<FeatureRouteGuard featureKey="logs"><AdminLogsPage /></FeatureRouteGuard>} />
-                <Route path="import" element={<AdminImportPage />} />
                 <Route path="tables" element={<FeatureRouteGuard featureKey="tables"><AdminTablesPage /></FeatureRouteGuard>} />
                 <Route path="support" element={<AdminSupportPage />} />
-                <Route path="diagnostics" element={<AdminDiagnosticsPage />} />
                 <Route path="help" element={<AdminHelpCenterPage />} />
+
+                {/* ── Rutas que requieren rol admin (owner o admin, no staff) ── */}
+                <Route path="metrics" element={<AdminRoleGuard required="admin"><FeatureRouteGuard featureKey="metrics"><AdminMetricsPage /></FeatureRouteGuard></AdminRoleGuard>} />
+                <Route path="categories" element={<AdminRoleGuard required="admin"><AdminCategoriesPage /></AdminRoleGuard>} />
+                <Route path="products" element={<AdminRoleGuard required="admin"><AdminProductsPage /></AdminRoleGuard>} />
+                <Route path="products/:id/modifiers" element={<AdminRoleGuard required="admin"><AdminProductModifiersPage /></AdminRoleGuard>} />
+                <Route path="modifiers" element={<AdminRoleGuard required="admin"><AdminModifiersPage /></AdminRoleGuard>} />
+                <Route path="import" element={<AdminRoleGuard required="admin"><AdminImportPage /></AdminRoleGuard>} />
+                <Route path="coupons" element={<AdminRoleGuard required="admin"><FeatureRouteGuard featureKey="coupons"><AdminCouponsPage /></FeatureRouteGuard></AdminRoleGuard>} />
+                <Route path="loyalty" element={<AdminRoleGuard required="admin"><FeatureRouteGuard featureKey="loyalty"><AdminLoyaltyPage /></FeatureRouteGuard></AdminRoleGuard>} />
+                <Route path="reviews" element={<AdminRoleGuard required="admin"><AdminReviewsPage /></AdminRoleGuard>} />
+                <Route path="abandoned-carts" element={<AdminRoleGuard required="admin"><AdminAbandonedCartsPage /></AdminRoleGuard>} />
+                <Route path="whatsapp" element={<AdminRoleGuard required="admin"><FeatureRouteGuard featureKey="whatsapp_chatbot"><AdminWhatsAppPage /></FeatureRouteGuard></AdminRoleGuard>} />
+                <Route path="settings" element={<AdminRoleGuard required="admin"><AdminSettingsPage /></AdminRoleGuard>} />
+                <Route path="web-customization" element={<AdminRoleGuard required="admin"><FeatureRouteGuard featureKey="website_customization"><AdminWebCustomizationPage /></FeatureRouteGuard></AdminRoleGuard>} />
+                <Route path="logs" element={<AdminRoleGuard required="admin"><FeatureRouteGuard featureKey="logs"><AdminLogsPage /></FeatureRouteGuard></AdminRoleGuard>} />
+                <Route path="diagnostics" element={<AdminRoleGuard required="admin"><AdminDiagnosticsPage /></AdminRoleGuard>} />
+
+                {/* ── Rutas que requieren rol owner (solo propietario) ── */}
+                <Route path="team" element={<AdminRoleGuard required="owner"><FeatureRouteGuard featureKey="staff_roles"><AdminTeamPage /></FeatureRouteGuard></AdminRoleGuard>} />
+                <Route path="billing" element={<AdminRoleGuard required="owner"><AdminBillingPage /></AdminRoleGuard>} />
               </Route>
 
               {/* POS / TPV */}
               <Route
                 path="pos"
                 element={
+                  <ErrorBoundary context="pos">
                   <FeatureRouteGuard featureKey="pos">
                     <RestaurantGuard>
                       <PosGate>
@@ -202,6 +233,7 @@ createRoot(document.getElementById("root")!).render(
                       </PosGate>
                     </RestaurantGuard>
                   </FeatureRouteGuard>
+                  </ErrorBoundary>
                 }
               >
                 <Route index element={<PosCajaPage />} />
@@ -212,6 +244,11 @@ createRoot(document.getElementById("root")!).render(
               </Route>
             </Route>
 
+            {/* ── GESTIÓN APP ─────────────────────────────────────────────────
+                App independiente de gestión de productos, clientes y pedidos.
+                Acceso: /gestion/login (usuario: admin, contraseña: 1234)       */}
+            <Route path="/gestion/*" element={<GestionApp />} />
+
             {/* ── 404 ────────────────────────────────────────────────────────*/}
             <Route path="*" element={<NotFoundPage />} />
 
@@ -219,5 +256,11 @@ createRoot(document.getElementById("root")!).render(
         </BrowserRouter>
       </AdminRestaurantProvider>
     </AuthProvider>
+    </ErrorBoundary>
   </StrictMode>
 );
+
+// Register service worker for POS offline support (production only)
+if ("serviceWorker" in navigator && import.meta.env.PROD) {
+  void navigator.serviceWorker.register("/sw.js");
+}

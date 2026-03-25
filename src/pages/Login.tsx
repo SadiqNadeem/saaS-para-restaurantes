@@ -107,12 +107,12 @@ export default function Login() {
           background: "#ffffff",
         }}
       >
-        <Link
-          to="/"
+        <a
+          href={(import.meta.env.VITE_LANDING_URL as string | undefined) ?? "/"}
           style={{ fontSize: 13, color: "#6b7280", textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 4 }}
         >
-          ← Volver al inicio
-        </Link>
+          ← Volver a la web
+        </a>
         <h1 style={{ margin: 0, fontSize: 22 }}>Login</h1>
 
         <label style={{ display: "grid", gap: 6 }}>

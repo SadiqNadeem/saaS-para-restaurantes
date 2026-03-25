@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
+import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
 import { supabase } from "../../lib/supabase";
 import { useRestaurant } from "../../restaurant/RestaurantContext";
@@ -29,6 +30,13 @@ type CashClosingRow = {
   counted_total: number;
   diff_total: number;
   closed_at: string | null;
+};
+
+type DailyRow = {
+  date: string;       // "YYYY-MM-DD"
+  orders: number;
+  total: number;
+  avgTicket: number;
 };
 
 type RangePreset = "today" | "7d" | "30d" | "custom";
@@ -279,6 +287,9 @@ export default function AdminPosPage() {
   const [closingBusy, setClosingBusy] = useState(false);
   const [exportBusy, setExportBusy] = useState<ExportKind | null>(null);
 
+  const [dailyRows, setDailyRows] = useState<DailyRow[]>([]);
+  const [loadingDaily, setLoadingDaily] = useState(false);
+
   const [toasts, setToasts] = useState<Toast[]>([]);
   const toastSeqRef = useRef(0);
 
@@ -436,12 +447,47 @@ export default function AdminPosPage() {
     setCashClosings(mapClosingRows(rows));
   }, [restaurantId]);
 
+  const loadDailyData = useCallback(async () => {
+    setLoadingDaily(true);
+    const { data, error } = await supabase
+      .from("orders")
+      .select("created_at, total")
+      .eq("restaurant_id", restaurantId)
+      .neq("status", "cancelled")
+      .gte("created_at", toStartDateTime(effectiveRange.from))
+      .lt("created_at", toStartDateTime(toNextDayDate(effectiveRange.to)));
+
+    if (error) throw new Error(error.message);
+
+    const rawOrders = (data ?? []) as { created_at: string | null; total: number | null }[];
+    const byDay: Record<string, { orders: number; total: number }> = {};
+    for (const row of rawOrders) {
+      if (!row.created_at) continue;
+      const day = row.created_at.slice(0, 10);
+      if (!byDay[day]) byDay[day] = { orders: 0, total: 0 };
+      byDay[day].orders++;
+      byDay[day].total += row.total ?? 0;
+    }
+
+    const daily: DailyRow[] = Object.entries(byDay)
+      .map(([date, { orders, total }]) => ({
+        date,
+        orders,
+        total,
+        avgTicket: orders > 0 ? total / orders : 0,
+      }))
+      .sort((a, b) => b.date.localeCompare(a.date));
+
+    setDailyRows(daily);
+    setLoadingDaily(false);
+  }, [restaurantId, effectiveRange.from, effectiveRange.to]);
+
   const loadAll = useCallback(async () => {
     setLoading(true);
     setErrorMessage(null);
 
     try {
-      await Promise.all([loadDashboardData(), loadClosings()]);
+      await Promise.all([loadDashboardData(), loadClosings(), loadDailyData()]);
     } catch (error) {
       const message = String((error as { message?: unknown })?.message ?? "Error cargando caja.");
       setErrorMessage(message);
@@ -449,14 +495,27 @@ export default function AdminPosPage() {
       setMetrics({ totalRevenue: 0, totalCash: 0, totalCard: 0, totalOrders: 0, avgTicket: 0 });
       setTopProducts([]);
       setCashClosings([]);
+      setDailyRows([]);
     } finally {
       setLoading(false);
     }
-  }, [loadClosings, loadDashboardData, pushToast]);
+  }, [loadClosings, loadDailyData, loadDashboardData, pushToast]);
 
   useEffect(() => {
     void loadAll();
   }, [loadAll]);
+
+  const bestDay = useMemo<DailyRow | null>(() => {
+    if (dailyRows.length === 0) return null;
+    return dailyRows.reduce((best, row) => (row.total > best.total ? row : best));
+  }, [dailyRows]);
+
+  const bestDayLabel = useMemo(() => {
+    if (!bestDay) return "-";
+    const d = new Date(`${bestDay.date}T00:00:00`);
+    const dateStr = new Intl.DateTimeFormat("es-ES", { day: "2-digit", month: "2-digit" }).format(d);
+    return `${dateStr} · ${formatMoney(bestDay.total)}`;
+  }, [bestDay]);
 
   const cards = useMemo(
     () => [
@@ -465,8 +524,9 @@ export default function AdminPosPage() {
       { label: "Total tarjeta", value: formatMoney(metrics.totalCard) },
       { label: "Numero de pedidos", value: formatInt(metrics.totalOrders) },
       { label: "Ticket promedio", value: formatMoney(metrics.avgTicket) },
+      { label: "Mejor día", value: bestDayLabel },
     ],
-    [metrics]
+    [metrics, bestDayLabel]
   );
 
   const resetCloseForm = () => {
@@ -691,6 +751,141 @@ export default function AdminPosPage() {
           </article>
         ))}
       </div>
+
+      {/* ── Daily sales bar chart ── */}
+      <article style={tablePanelStyle}>
+        <h3 style={{ margin: "0 0 12px" }}>Ventas por día</h3>
+        {loadingDaily ? (
+          <div style={{ opacity: 0.7, fontSize: 13 }}>Cargando...</div>
+        ) : dailyRows.length === 0 ? (
+          <div style={{ opacity: 0.75, fontSize: 13 }}>Sin pedidos en este rango.</div>
+        ) : (
+          <ResponsiveContainer width="100%" height={200}>
+            <BarChart
+              data={[...dailyRows].reverse().map((r) => ({
+                day: new Intl.DateTimeFormat("es-ES", { day: "2-digit", month: "2-digit" }).format(
+                  new Date(`${r.date}T00:00:00`)
+                ),
+                total: r.total,
+                pedidos: r.orders,
+              }))}
+              margin={{ top: 4, right: 4, left: -4, bottom: 0 }}
+            >
+              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
+              <XAxis dataKey="day" tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={false} tickLine={false} />
+              <YAxis
+                tick={{ fontSize: 10, fill: "#9ca3af" }}
+                axisLine={false}
+                tickLine={false}
+                width={54}
+                tickFormatter={(v: number) => `${v}€`}
+              />
+              <Tooltip
+                contentStyle={{ borderRadius: 8, border: "1px solid #e5e7eb", fontSize: 12 }}
+                formatter={(value: number, name: string) =>
+                  name === "total" ? [formatMoney(value), "Ventas"] : [value, "Pedidos"]
+                }
+                labelFormatter={(label) => `Fecha: ${label}`}
+                cursor={{ fill: "rgba(23,33,43,0.04)" }}
+              />
+              <Bar dataKey="total" name="total" fill="var(--brand-primary)" radius={[3, 3, 0, 0]} maxBarSize={36} />
+            </BarChart>
+          </ResponsiveContainer>
+        )}
+      </article>
+
+      {/* ── Daily breakdown table ── */}
+      <article style={tablePanelStyle}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, gap: 8, flexWrap: "wrap" }}>
+          <h3 style={{ margin: 0 }}>Desglose diario</h3>
+          <button
+            type="button"
+            disabled={dailyRows.length === 0}
+            onClick={() => {
+              if (dailyRows.length === 0) return;
+              const header = "fecha;pedidos;total;ticket_medio";
+              const lines = dailyRows.map((r) =>
+                [r.date, r.orders, r.total.toFixed(2), r.avgTicket.toFixed(2)].join(";")
+              );
+              const totals = dailyRows.reduce((acc, r) => ({ orders: acc.orders + r.orders, total: acc.total + r.total }), { orders: 0, total: 0 });
+              const totAvg = totals.orders > 0 ? totals.total / totals.orders : 0;
+              lines.push(["TOTAL", totals.orders, totals.total.toFixed(2), totAvg.toFixed(2)].join(";"));
+              const csv = "\uFEFF" + [header, ...lines].join("\n");
+              const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement("a");
+              a.href = url;
+              a.download = `historico_caja_${effectiveRange.from}_${effectiveRange.to}.csv`;
+              document.body.appendChild(a);
+              a.click();
+              document.body.removeChild(a);
+              URL.revokeObjectURL(url);
+            }}
+            style={{
+              ...quickRangeButtonStyle,
+              opacity: dailyRows.length === 0 ? 0.5 : 1,
+              cursor: dailyRows.length === 0 ? "not-allowed" : "pointer",
+            }}
+          >
+            Exportar CSV
+          </button>
+        </div>
+
+        {loadingDaily ? (
+          <div style={{ opacity: 0.7, fontSize: 13 }}>Cargando...</div>
+        ) : (
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 480 }}>
+              <thead>
+                <tr style={{ background: "#f9fafb", textAlign: "left" }}>
+                  <th style={thStyle}>Fecha</th>
+                  <th style={{ ...thStyle, textAlign: "right" }}>Pedidos</th>
+                  <th style={{ ...thStyle, textAlign: "right" }}>Total</th>
+                  <th style={{ ...thStyle, textAlign: "right" }}>Ticket medio</th>
+                </tr>
+              </thead>
+              <tbody>
+                {dailyRows.length === 0 ? (
+                  <tr>
+                    <td style={tdStyle} colSpan={4}>Sin pedidos en este rango.</td>
+                  </tr>
+                ) : (
+                  <>
+                    {dailyRows.map((row) => (
+                      <tr key={row.date}>
+                        <td style={tdStyle}>
+                          {new Intl.DateTimeFormat("es-ES", { weekday: "short", day: "2-digit", month: "2-digit", year: "numeric" }).format(
+                            new Date(`${row.date}T00:00:00`)
+                          )}
+                        </td>
+                        <td style={{ ...tdStyle, textAlign: "right" }}>{formatInt(row.orders)}</td>
+                        <td style={{ ...tdStyle, textAlign: "right", fontWeight: 600 }}>{formatMoney(row.total)}</td>
+                        <td style={{ ...tdStyle, textAlign: "right", color: "#6b7280" }}>{formatMoney(row.avgTicket)}</td>
+                      </tr>
+                    ))}
+                    {/* Totals row */}
+                    {(() => {
+                      const tot = dailyRows.reduce(
+                        (acc, r) => ({ orders: acc.orders + r.orders, total: acc.total + r.total }),
+                        { orders: 0, total: 0 }
+                      );
+                      const avg = tot.orders > 0 ? tot.total / tot.orders : 0;
+                      return (
+                        <tr style={{ background: "#f9fafb", fontWeight: 700 }}>
+                          <td style={{ ...tdStyle, borderTop: "2px solid #e5e7eb" }}>Total</td>
+                          <td style={{ ...tdStyle, textAlign: "right", borderTop: "2px solid #e5e7eb" }}>{formatInt(tot.orders)}</td>
+                          <td style={{ ...tdStyle, textAlign: "right", borderTop: "2px solid #e5e7eb" }}>{formatMoney(tot.total)}</td>
+                          <td style={{ ...tdStyle, textAlign: "right", borderTop: "2px solid #e5e7eb", color: "#6b7280" }}>{formatMoney(avg)}</td>
+                        </tr>
+                      );
+                    })()}
+                  </>
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </article>
 
       <article style={tablePanelStyle}>
         <h3 style={{ margin: 0 }}>Exportar</h3>

@@ -20,6 +20,7 @@ import { CSS } from "@dnd-kit/utilities";
 import { useAdminMembership } from "../components/AdminMembershipContext";
 import { supabase } from "../../lib/supabase";
 import { useRestaurant } from "../../restaurant/RestaurantContext";
+import { useAnimatedValue } from "../../hooks/useAnimatedValue";
 
 type CategoryRow = {
   id: string;
@@ -79,6 +80,7 @@ function SortableCategoryItem({
 
   return (
     <article
+      className="ui-list-item ui-soft-border"
       ref={setNodeRef}
       style={{
         transform: CSS.Transform.toString(transform),
@@ -285,6 +287,7 @@ export default function AdminCategoriesPage() {
   const [nameDraft, setNameDraft] = useState("");
   const [submittingModal, setSubmittingModal] = useState(false);
   const [toasts, setToasts] = useState<Toast[]>([]);
+  const animatedModal = useAnimatedValue(modal, 220);
 
   const pushToast = useCallback((type: Toast["type"], message: string) => {
     const id = Date.now() + Math.floor(Math.random() * 1000);
@@ -721,8 +724,10 @@ export default function AdminCategoriesPage() {
         </div>
       ) : null}
 
-      {modal ? (
+      {animatedModal.mounted && animatedModal.displayValue ? (
         <div
+          className="ui-overlay"
+          data-state={animatedModal.visible ? "open" : "closed"}
           role="presentation"
           onClick={closeModal}
           style={{
@@ -735,9 +740,11 @@ export default function AdminCategoriesPage() {
           }}
         >
           <div
+            className="ui-modal-panel"
+            data-state={animatedModal.visible ? "open" : "closed"}
             role="dialog"
             aria-modal="true"
-            aria-label={modal.mode === "create" ? "Crear categoria" : "Editar categoria"}
+            aria-label={animatedModal.displayValue.mode === "create" ? "Crear categoria" : "Editar categoria"}
             onClick={(event) => event.stopPropagation()}
             style={{
               width: "min(520px, calc(100vw - 32px))",
@@ -749,7 +756,7 @@ export default function AdminCategoriesPage() {
               gap: 12,
             }}
           >
-            <h3 style={{ margin: 0 }}>{modal.mode === "create" ? "Nueva categoria" : "Editar categoria"}</h3>
+            <h3 style={{ margin: 0 }}>{animatedModal.displayValue.mode === "create" ? "Nueva categoria" : "Editar categoria"}</h3>
 
             <label style={{ display: "grid", gap: 6 }}>
               <span style={{ fontSize: 13, color: "#374151" }}>Nombre</span>
@@ -776,6 +783,7 @@ export default function AdminCategoriesPage() {
                   borderRadius: 8,
                   border: "1px solid #d1d5db",
                   background: "#fff",
+                  color: "#374151",
                   padding: "8px 12px",
                   cursor: submittingModal ? "not-allowed" : "pointer",
                 }}

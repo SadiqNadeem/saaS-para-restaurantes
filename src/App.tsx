@@ -1,10 +1,12 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import ProductModifiersModal from "./components/ProductModifiersModal";
 import CheckoutPage from "./features/checkout/ui/CheckoutPage";
 import type { CartItem } from "./features/checkout/types";
 import { supabase } from "./lib/supabase";
 import { useRestaurant } from "./restaurant/RestaurantContext";
+import { useAnimatedPresence } from "./hooks/useAnimatedPresence";
+import { RestaurantHead } from "./components/RestaurantHead";
 
 type Category = {
   id: string;
@@ -20,6 +22,7 @@ type Product = {
   price: number;
   image_url: string | null;
   sort_order: number;
+  is_upsell: boolean;
 };
 
 type ModifierGroupRow = {
@@ -208,7 +211,7 @@ function getNextOpeningText(rows: RestaurantHourRow[]): string | null {
 }
 
 export default function App() {
-  const { restaurantId, name: restaurantName } = useRestaurant();
+  const { restaurantId, name: restaurantName, slug } = useRestaurant();
   const [categories, setCategories] = useState<Category[]>([]);
   const [productsByCat, setProductsByCat] = useState<Record<string, Product[]>>(
     {}
@@ -225,8 +228,12 @@ export default function App() {
   const [modifiersLoading, setModifiersLoading] = useState(false);
   const [modifiersError, setModifiersError] = useState<string | null>(null);
 
+  const [searchQuery, setSearchQuery] = useState("");
+  const [debouncedQuery, setDebouncedQuery] = useState("");
+
   const [cart, setCart] = useState<CartItem[]>([]);
   const [cartOpen, setCartOpen] = useState(false);
+  const cartDrawerPresence = useAnimatedPresence(cartOpen, 220);
   const [isCartButtonHovered, setIsCartButtonHovered] = useState(false);
   const [activeCategoryId, setActiveCategoryId] = useState<string | null>(null);
   const [recentlyAddedProductId, setRecentlyAddedProductId] = useState<string | null>(null);
@@ -235,6 +242,16 @@ export default function App() {
   const [orderOkMsg, setOrderOkMsg] = useState<string | null>(null);
   const [orderErrMsg, setOrderErrMsg] = useState<string | null>(null);
   const [isRestaurantClosed, setIsRestaurantClosed] = useState(false);
+
+  // SEO meta data from restaurants table
+  const [seoData, setSeoData] = useState<{
+    metaTitle: string | null;
+    metaDescription: string | null;
+    ogImage: string | null;
+    cuisineType: string | null;
+    customDomain: string | null;
+    customDomainVerified: boolean;
+  }>({ metaTitle: null, metaDescription: null, ogImage: null, cuisineType: null, customDomain: null, customDomainVerified: false });
   const [nextOpeningText, setNextOpeningText] = useState<string | null>(null);
   const [contactPhone, setContactPhone] = useState<string | null>(null);
   const [restaurantLogoUrl, setRestaurantLogoUrl] = useState<string | null>(null);
@@ -256,82 +273,134 @@ export default function App() {
     [cart]
   );
 
+  // Upsell products: is_upsell = true, max 3, filtered later by CheckoutPage to exclude cart items
+  const upsellProducts = useMemo(() => {
+    const all = Object.values(productsByCat).flat();
+    return all.filter((p) => p.is_upsell).slice(0, 3);
+  }, [productsByCat]);
+
+  const handleAddUpsellProduct = (productId: string, name: string, price: number) => {
+    addToCart({
+      productId,
+      productName: name,
+      basePrice: price,
+      extraPrice: 0,
+      finalUnitPrice: price,
+      extras: [],
+      selectedModifiers: [],
+    });
+  };
+
+  // Debounce del buscador
   useEffect(() => {
-    let alive = true;
+    const timer = setTimeout(() => setDebouncedQuery(searchQuery), 200);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
 
-    (async () => {
-      setError(null);
+  const filteredProductsByCat = useMemo(() => {
+    const q = debouncedQuery.trim().toLowerCase();
+    if (!q) return productsByCat;
+    const result: Record<string, Product[]> = {};
+    for (const [catId, products] of Object.entries(productsByCat)) {
+      const filtered = products.filter((p) =>
+        p.name.toLowerCase().includes(q)
+      );
+      if (filtered.length > 0) result[catId] = filtered;
+    }
+    return result;
+  }, [productsByCat, debouncedQuery]);
 
-      const { data: cats, error: catErr } = await supabase
+  const searchHasResults =
+    !debouncedQuery.trim() ||
+    Object.keys(filteredProductsByCat).length > 0;
+
+  const [menuUpdated, setMenuUpdated] = useState(false);
+  const menuUpdatedTimerRef = useRef<number | null>(null);
+
+  // ── Menu data fetch — never touches cart or other UI state ──────────────────
+  const loadMenu = useCallback(async () => {
+    const [catRes, prodRes] = await Promise.all([
+      supabase
         .from("categories")
         .select("id,name,sort_order")
         .eq("restaurant_id", restaurantId)
         .eq("is_active", true)
-        .order("sort_order", { ascending: true });
-
-      if (!alive) {
-        return;
-      }
-
-      if (catErr) {
-        setError(catErr.message);
-        return;
-      }
-
-      const catList = (cats ?? []) as Category[];
-      setCategories(catList);
-
-      const { data: prods, error: prodErr } = await supabase
+        .order("sort_order", { ascending: true }),
+      supabase
         .from("products")
-        .select("id,category_id,name,description,price,image_url,sort_order")
+        .select("id,category_id,name,description,price,image_url,sort_order,is_upsell")
         .eq("restaurant_id", restaurantId)
         .eq("is_active", true)
-        .order("sort_order", { ascending: true });
+        .order("sort_order", { ascending: true }),
+    ]);
 
-      if (!alive) {
-        return;
-      }
+    if (catRes.error) { setError(catRes.error.message); return; }
+    if (prodRes.error) { setError(prodRes.error.message); return; }
 
-      if (prodErr) {
-        setError(prodErr.message);
-        return;
-      }
+    setCategories((catRes.data ?? []) as Category[]);
 
-      const list = (prods ?? []) as Product[];
+    const grouped: Record<string, Product[]> = {};
+    for (const product of (prodRes.data ?? []) as Product[]) {
+      if (!product.category_id) continue;
+      if (!grouped[product.category_id]) grouped[product.category_id] = [];
+      grouped[product.category_id].push(product);
+    }
+    setProductsByCat(grouped);
+  }, [restaurantId]);
 
-      const grouped: Record<string, Product[]> = {};
-      for (const product of list) {
-        if (!product.category_id) {
-          continue;
-        }
+  // ── Initial load ────────────────────────────────────────────────────────────
+  useEffect(() => {
+    let alive = true;
+    setError(null);
+    void loadMenu().catch((err) => {
+      if (alive) setError(err instanceof Error ? err.message : "Error cargando menú");
+    });
+    return () => { alive = false; };
+  }, [loadMenu]);
 
-        if (!grouped[product.category_id]) {
-          grouped[product.category_id] = [];
-        }
+  // ── Realtime subscription: reload menu on any menu-table change ─────────────
+  useEffect(() => {
+    if (!restaurantId) return;
+    let debounceTimer: number | null = null;
 
-        grouped[product.category_id].push(product);
-      }
+    const triggerReload = () => {
+      if (debounceTimer !== null) clearTimeout(debounceTimer);
+      debounceTimer = window.setTimeout(async () => {
+        await loadMenu();
+        setMenuUpdated(true);
+        if (menuUpdatedTimerRef.current !== null) clearTimeout(menuUpdatedTimerRef.current);
+        menuUpdatedTimerRef.current = window.setTimeout(() => setMenuUpdated(false), 3000);
+      }, 400);
+    };
 
-      setProductsByCat(grouped);
-    })();
+    const channel = supabase
+      .channel(`sf-menu-${restaurantId}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "products",                filter: `restaurant_id=eq.${restaurantId}` }, triggerReload)
+      .on("postgres_changes", { event: "*", schema: "public", table: "categories",              filter: `restaurant_id=eq.${restaurantId}` }, triggerReload)
+      .on("postgres_changes", { event: "*", schema: "public", table: "modifier_groups",         filter: `restaurant_id=eq.${restaurantId}` }, triggerReload)
+      .on("postgres_changes", { event: "*", schema: "public", table: "modifier_options",        filter: `restaurant_id=eq.${restaurantId}` }, triggerReload)
+      .on("postgres_changes", { event: "*", schema: "public", table: "product_modifier_groups", filter: `restaurant_id=eq.${restaurantId}` }, triggerReload)
+      .subscribe();
 
     return () => {
-      alive = false;
+      if (debounceTimer !== null) clearTimeout(debounceTimer);
+      if (menuUpdatedTimerRef.current !== null) clearTimeout(menuUpdatedTimerRef.current);
+      void supabase.removeChannel(channel);
     };
-  }, [restaurantId]);
+  }, [restaurantId, loadMenu]);
 
   useEffect(() => {
     let alive = true;
 
     const loadAvailability = async () => {
-      const [hoursResult, settingsResult, webSettingsResult] = await Promise.all([
+      const [hoursResult, settingsResult, webSettingsResult, restaurantSeoResult] = await Promise.all([
         supabase
           .from("restaurant_hours")
           .select("day_of_week,is_open,open_time,close_time")
           .eq("restaurant_id", restaurantId),
         supabase
           .from("restaurant_settings")
-          .select("business_phone,logo_url,estimated_delivery_minutes")
+          .select("business_phone,logo_url,estimated_delivery_minutes,cuisine_type")
           .eq("restaurant_id", restaurantId)
           .limit(1)
           .maybeSingle(),
@@ -339,6 +408,11 @@ export default function App() {
           .from("restaurant_web_settings")
           .select("logo_url,primary_color,secondary_color,button_color,header_title,header_subtitle,helper_text,banner_url,banner_title,banner_subtitle,chip_1,chip_2,chip_3,add_button_text,add_button_variant")
           .eq("restaurant_id", restaurantId)
+          .maybeSingle(),
+        supabase
+          .from("restaurants")
+          .select("meta_title,meta_description,og_image_url,custom_domain,custom_domain_verified")
+          .eq("id", restaurantId)
           .maybeSingle(),
       ]);
 
@@ -353,6 +427,20 @@ export default function App() {
       setRestaurantLogoUrl(logo || null);
       setEstimatedDeliveryMinutes(Number.isFinite(estimated) && estimated > 0 ? estimated : null);
       setWebSettings((webSettingsResult.data as WebSettingsRow | null) ?? null);
+
+      // SEO data from restaurants table
+      type SeoRow = { meta_title?: string | null; meta_description?: string | null; og_image_url?: string | null; custom_domain?: string | null; custom_domain_verified?: boolean | null };
+      type SettingsSeoRow = { cuisine_type?: string | null };
+      const seoRow = restaurantSeoResult.data as SeoRow | null;
+      const settingsSeoRow = settingsResult.data as SettingsSeoRow | null;
+      setSeoData({
+        metaTitle: seoRow?.meta_title ?? null,
+        metaDescription: seoRow?.meta_description ?? null,
+        ogImage: seoRow?.og_image_url ?? null,
+        cuisineType: settingsSeoRow?.cuisine_type ?? null,
+        customDomain: seoRow?.custom_domain ?? null,
+        customDomainVerified: seoRow?.custom_domain_verified ?? false,
+      });
 
       if (hoursResult.error || !Array.isArray(hoursResult.data)) {
         setIsRestaurantClosed(false);
@@ -468,11 +556,12 @@ export default function App() {
     const { data: assignedData, error: assignedError } = await supabase
       .from("product_modifier_groups")
       .select(
-        "id, modifier_group_id, modifier_groups!product_modifier_groups_modifier_group_id_fkey ( id, name, min_select, max_select, is_active )"
+        "id, modifier_group_id, sort_order, modifier_groups!product_modifier_groups_modifier_group_id_fkey ( id, name, min_select, max_select, is_active )"
       )
       .eq("restaurant_id", restaurantId)
       .eq("product_id", product.id)
-      .eq("modifier_groups.restaurant_id", restaurantId);
+      .eq("modifier_groups.restaurant_id", restaurantId)
+      .order("sort_order", { ascending: true });
 
     if (assignedError) {
       if (import.meta.env.DEV) console.error("[storefront] load assigned modifiers", assignedError);
@@ -573,6 +662,37 @@ export default function App() {
     setOrderErrMsg(null);
   };
 
+  // Rehidratar carrito desde localStorage al montar
+  useEffect(() => {
+    if (!restaurantId) return;
+    try {
+      const saved = localStorage.getItem(`sf_cart_${restaurantId}`);
+      if (saved) {
+        const parsed = JSON.parse(saved) as CartItem[];
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setCart(parsed);
+        }
+      }
+    } catch {
+      // ignorar datos corruptos
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [restaurantId]);
+
+  // Persistir carrito en localStorage ante cada cambio
+  useEffect(() => {
+    if (!restaurantId) return;
+    try {
+      if (cart.length > 0) {
+        localStorage.setItem(`sf_cart_${restaurantId}`, JSON.stringify(cart));
+      } else {
+        localStorage.removeItem(`sf_cart_${restaurantId}`);
+      }
+    } catch {
+      // ignorar errores de storage
+    }
+  }, [cart, restaurantId]);
+
   useEffect(() => {
     if (cartOpen && cart.length === 0 && !orderOkMsg) {
       setCartOpen(false);
@@ -627,17 +747,23 @@ export default function App() {
     }
   };
 
+  // Flatten products for JSON-LD
+  const allProducts = Object.values(productsByCat).flat();
+
   return (
-    <div
-      style={{
-        padding: "14px 18px 32px",
-        fontFamily: "system-ui",
-        maxWidth: 1240,
-        width: "100%",
-        boxSizing: "border-box",
-        margin: "0 auto",
-      }}
-    >
+    <>
+      <RestaurantHead
+        restaurantName={restaurantName ?? "Restaurante"}
+        slug={slug}
+        cuisineType={seoData.cuisineType}
+        metaTitle={seoData.metaTitle}
+        metaDescription={seoData.metaDescription}
+        ogImage={seoData.ogImage ?? (webSettings?.logo_url ?? restaurantLogoUrl ?? undefined)}
+        customDomain={seoData.customDomain}
+        customDomainVerified={seoData.customDomainVerified}
+        products={allProducts}
+      />
+    <div className="sf-root">
       <header
         style={{
           borderRadius: "20px 20px 0 0",
@@ -726,6 +852,18 @@ export default function App() {
               Tel. {contactPhone}
             </a>
           ) : null}
+          {menuUpdated && (
+            <span style={{
+              fontSize: 11, fontWeight: 700,
+              borderRadius: 999, padding: "4px 10px",
+              background: "rgba(78,197,128,0.25)",
+              border: "1px solid rgba(78,197,128,0.45)",
+              color: "#bbf7d0",
+              animation: "sfFadeIn 0.3s ease",
+            }}>
+              Menú actualizado
+            </span>
+          )}
         </div>
       </header>
 
@@ -880,7 +1018,34 @@ export default function App() {
         </nav>
       ) : null}
 
-      {categories.map((category) => (
+      <div className="sf-search-wrap">
+        <input
+          className="sf-search-input"
+          type="search"
+          placeholder="Buscar producto..."
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          aria-label="Buscar producto"
+        />
+      </div>
+
+      {!searchHasResults && (
+        <div
+          style={{
+            padding: "32px 12px",
+            textAlign: "center",
+            color: "#64748b",
+            fontSize: 15,
+          }}
+        >
+          No se encontró ningún producto para &ldquo;{debouncedQuery}&rdquo;
+        </div>
+      )}
+
+      {categories.map((category) => {
+        const products = filteredProductsByCat[category.id];
+        if (!products || products.length === 0) return null;
+        return (
         <section
           key={category.id}
           id={`category-${category.id}`}
@@ -897,18 +1062,8 @@ export default function App() {
             {category.name}
           </h2>
 
-          {(productsByCat[category.id]?.length ?? 0) === 0 ? (
-            <p style={{ opacity: 0.7 }}>No hay productos en esta categoria.</p>
-          ) : (
-            <div
-              style={{
-                display: "grid",
-                gap: 18,
-                gridTemplateColumns: "repeat(auto-fit, minmax(270px, 1fr))",
-                alignItems: "stretch",
-              }}
-            >
-              {productsByCat[category.id].map((product) => (
+          <div className="sf-product-grid">
+              {products.map((product) => (
                 <div
                   key={product.id}
                   style={{
@@ -956,19 +1111,20 @@ export default function App() {
                         style={{ width: "100%", height: "100%", objectFit: "cover" }}
                       />
                     ) : (
-                      <div
-                        style={{
-                          width: "100%",
-                          height: "100%",
-                          display: "grid",
-                          placeItems: "center",
-                          fontSize: 13,
-                          color: "#64748b",
-                          fontWeight: 600,
-                        }}
+                      <svg
+                        viewBox="0 0 200 180"
+                        xmlns="http://www.w3.org/2000/svg"
+                        style={{ width: "100%", height: "100%", display: "block" }}
+                        aria-hidden
                       >
-                        Sin imagen
-                      </div>
+                        <rect width="200" height="180" fill="#f1f5f9" />
+                        <rect x="52" y="44" width="96" height="76" rx="10" fill="#e2e8f0" />
+                        <circle cx="80" cy="70" r="10" fill="#cbd5e1" />
+                        <polygon points="52,120 88,78 112,100 136,82 148,120" fill="#cbd5e1" />
+                        <rect x="52" y="44" width="96" height="76" rx="10" fill="none" stroke="#cbd5e1" strokeWidth="2" />
+                        <rect x="82" y="130" width="36" height="6" rx="3" fill="#cbd5e1" />
+                        <rect x="74" y="141" width="52" height="5" rx="2.5" fill="#e2e8f0" />
+                      </svg>
                     )}
                   </div>
 
@@ -1044,9 +1200,9 @@ export default function App() {
                 </div>
               ))}
             </div>
-          )}
         </section>
-      ))}
+        );
+      })}
 
       <button
         disabled={isRestaurantClosed}
@@ -1054,6 +1210,7 @@ export default function App() {
         onClick={() => setCartOpen((value) => !value)}
         onMouseEnter={() => setIsCartButtonHovered(true)}
         onMouseLeave={() => setIsCartButtonHovered(false)}
+        className="sf-cart-btn"
         style={{
           position: "fixed",
           right: 14,
@@ -1104,8 +1261,10 @@ export default function App() {
         <span style={{ fontSize: 15, fontWeight: 900, lineHeight: 1 }}>+</span>
       </button>
 
-      {cartOpen && (
+      {cartDrawerPresence.mounted && (
         <div
+          className="ui-overlay"
+          data-state={cartDrawerPresence.visible ? "open" : "closed"}
           onClick={() => setCartOpen(false)}
           style={{
             position: "fixed",
@@ -1118,6 +1277,8 @@ export default function App() {
           }}
         >
           <div
+            className="ui-drawer-panel"
+            data-state={cartDrawerPresence.visible ? "open" : "closed"}
             onClick={(event) => event.stopPropagation()}
             style={{
               width: "min(470px, 100vw)",
@@ -1437,6 +1598,8 @@ export default function App() {
                         restaurantClosedMessage={closedMessage}
                         nextOpeningText={nextOpeningText}
                         contactPhone={contactPhone}
+                        upsellProducts={upsellProducts}
+                        onAddUpsellProduct={handleAddUpsellProduct}
                       />
                     </div>
                   </div>
@@ -1481,5 +1644,6 @@ export default function App() {
         }}
       />
     </div>
+    </>
   );
 }

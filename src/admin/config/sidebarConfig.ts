@@ -24,6 +24,7 @@ export const SIDEBAR_GROUPS: SidebarGroupConfig[] = [
   { id: "marketing", label: "Marketing", icon: "MK", defaultOpen: false, requiredRole: "admin" },
   { id: "equipo", label: "Equipo", icon: "EQ", defaultOpen: false, requiredRole: "owner" },
   { id: "ajustes", label: "Ajustes", icon: "AJ", defaultOpen: false, requiredRole: "admin" },
+  { id: "soporte", label: "Soporte", icon: "SP", defaultOpen: false },
 ];
 
 export const SIDEBAR_ITEMS: SidebarItemConfig[] = [
@@ -40,7 +41,7 @@ export const SIDEBAR_ITEMS: SidebarItemConfig[] = [
 
   { label: "Cupones", path: "coupons", icon: "CP", group: "marketing", requiredRole: "admin", requiredFeature: "coupons" },
   { label: "Fidelizacion", path: "loyalty", icon: "FD", group: "marketing", requiredRole: "admin", requiredFeature: "loyalty" },
-  { label: "Resenas", path: "reviews", icon: "RS", group: "marketing", requiredRole: "admin" },
+  { label: "Reseñas", path: "reviews", icon: "RS", group: "marketing", requiredRole: "admin" },
   { label: "Carritos", path: "abandoned-carts", icon: "CR", group: "marketing", requiredRole: "admin" },
   { label: "WhatsApp", path: "whatsapp", icon: "WA", group: "marketing", requiredRole: "admin", requiredFeature: "whatsapp_chatbot" },
   { label: "Personalizar web", path: "web-customization", icon: "WB", group: "marketing", requiredRole: "admin", requiredFeature: "website_customization" },
@@ -51,7 +52,8 @@ export const SIDEBAR_ITEMS: SidebarItemConfig[] = [
   { label: "Metricas", path: "metrics", icon: "MT", group: "ajustes", requiredRole: "admin", requiredFeature: "metrics" },
   { label: "Logs", path: "logs", icon: "LG", group: "ajustes", requiredRole: "admin", requiredFeature: "logs" },
   { label: "Diagnostico", path: "diagnostics", icon: "DG", group: "ajustes", requiredRole: "admin" },
+  { label: "Suscripcion", path: "billing", icon: "SC", group: "ajustes", requiredRole: "owner" },
 
-  { label: "Centro de ayuda", path: "help", icon: "AY", bottom: true },
-  { label: "Soporte", path: "support", icon: "SP", bottom: true },
+  { label: "Tickets", path: "support", icon: "SP", group: "soporte" },
+  { label: "Centro de ayuda", path: "help", icon: "AY", group: "soporte" },
 ];

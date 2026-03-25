@@ -4,7 +4,7 @@ import { Link, useNavigate } from "react-router-dom";
 import TableQRModal from "../components/TableQRModal";
 import { supabase } from "../../lib/supabase";
 import { useRestaurant } from "../../restaurant/RestaurantContext";
-import type { RestaurantTable, TableStatus } from "../services/posOrderService";
+import type { RestaurantTable, TableActiveOrder, TableStatus } from "../services/posOrderService";
 import { openTableOrder } from "../services/posOrderService";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -30,6 +30,8 @@ type TableWithOrder = RestaurantTable & {
   order_total?: number;
   order_item_count?: number;
   order_source?: string;
+  // Model A: all active orders for this table (may be > 1 when multiple customers scan QR)
+  active_orders?: TableActiveOrder[];
 };
 
 // ─── Card component ───────────────────────────────────────────────────────────
@@ -126,6 +128,11 @@ function TableCard({
           {table.order_source === "qr_table" && (
             <span style={{ fontSize: 9, fontWeight: 800, padding: "2px 6px", borderRadius: 10, background: "rgba(96,165,250,0.2)", color: "#60a5fa", letterSpacing: "0.05em" }}>
               QR
+            </span>
+          )}
+          {(table.active_orders?.length ?? 0) > 1 && (
+            <span style={{ fontSize: 9, fontWeight: 800, padding: "2px 6px", borderRadius: 10, background: "rgba(251,191,36,0.25)", color: "#fbbf24", letterSpacing: "0.05em" }}>
+              {table.active_orders!.length} pedidos
             </span>
           )}
         </div>
@@ -402,6 +409,88 @@ function ConfirmOpenModal({
   );
 }
 
+// ─── Orders list modal (Model A: múltiples pedidos por mesa) ─────────────────
+
+function OrdersListModal({
+  table,
+  onSelect,
+  onClose,
+}: {
+  table: TableWithOrder;
+  onSelect: (orderId: string) => void;
+  onClose: () => void;
+}) {
+  function elapsedMin(createdAt: string): string {
+    const diff = Math.floor((Date.now() - new Date(createdAt).getTime()) / 60000);
+    if (diff < 60) return `${diff} min`;
+    const h = Math.floor(diff / 60);
+    const m = diff % 60;
+    return m > 0 ? `${h}h ${m}m` : `${h}h`;
+  }
+
+  return (
+    <div
+      style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 1100, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}
+      onClick={onClose}
+    >
+      <div
+        style={{ background: "#1e293b", border: "1px solid #334155", borderRadius: 16, padding: 24, width: "min(440px, 100%)", display: "flex", flexDirection: "column", gap: 14 }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div>
+          <div style={{ fontSize: 16, fontWeight: 800, color: "#f1f5f9" }}>{table.name} — Pedidos activos</div>
+          <div style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>
+            {table.active_orders!.length} pedidos en esta mesa. Selecciona uno para gestionarlo.
+          </div>
+        </div>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {table.active_orders!.map((o) => (
+            <button
+              key={o.order_id}
+              type="button"
+              onClick={() => onSelect(o.order_id)}
+              style={{
+                padding: "12px 14px",
+                borderRadius: 10,
+                border: "1px solid #334155",
+                background: "#0f172a",
+                color: "#f1f5f9",
+                cursor: "pointer",
+                textAlign: "left",
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                gap: 12,
+              }}
+            >
+              <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                <span style={{ fontSize: 14, fontWeight: 700 }}>{o.customer_name}</span>
+                <span style={{ fontSize: 11, color: "#64748b" }}>
+                  {elapsedMin(o.created_at)}
+                  {o.source === "qr_table" ? " · QR" : " · TPV"}
+                  {o.item_count > 0 ? ` · ${o.item_count} art.` : ""}
+                </span>
+              </div>
+              <span style={{ fontSize: 16, fontWeight: 800, color: "#4ade80", flexShrink: 0 }}>
+                {new Intl.NumberFormat("es-ES", { style: "currency", currency: "EUR" }).format(o.total)}
+              </span>
+            </button>
+          ))}
+        </div>
+
+        <button
+          type="button"
+          onClick={onClose}
+          style={{ alignSelf: "flex-end", padding: "8px 16px", borderRadius: 8, border: "1px solid #334155", background: "transparent", color: "#64748b", fontSize: 13, cursor: "pointer", fontWeight: 600 }}
+        >
+          Cerrar
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export default function PosTablesPage() {
@@ -419,6 +508,7 @@ export default function PosTablesPage() {
   const [openingBusy, setOpeningBusy] = useState(false);
   const [qrTable, setQrTable] = useState<TableWithOrder | null>(null);
   const [statusPickerTable, setStatusPickerTable] = useState<TableWithOrder | null>(null);
+  const [ordersListTable, setOrdersListTable] = useState<TableWithOrder | null>(null);
 
   // ── Load tables with order details ──
   const loadTables = async () => {
@@ -436,13 +526,44 @@ export default function PosTablesPage() {
       .filter((t) => t.current_order_id)
       .map((t) => t.current_order_id as string);
 
+    // Model A: load all active orders grouped by table_id
+    const { data: activeOrdersData } = await supabase
+      .from("orders")
+      .select("id, table_id, customer_name, total, subtotal, source, created_at, status")
+      .eq("restaurant_id", restaurantId)
+      .not("table_id", "is", null)
+      .not("status", "in", "(delivered,cancelled)");
+
+    type ActiveOrderRow = {
+      id: string; table_id: string; customer_name: string;
+      total: number | null; subtotal: number | null;
+      source: string; created_at: string; status: string;
+    };
+    const activeOrders = (activeOrdersData ?? []) as ActiveOrderRow[];
+    const tableOrdersMap = new Map<string, TableActiveOrder[]>();
+    for (const o of activeOrders) {
+      if (!tableOrdersMap.has(o.table_id)) tableOrdersMap.set(o.table_id, []);
+      tableOrdersMap.get(o.table_id)!.push({
+        order_id: o.id,
+        customer_name: o.customer_name,
+        total: Number(o.total ?? o.subtotal ?? 0),
+        status: o.status,
+        source: o.source,
+        created_at: o.created_at,
+        item_count: 0, // filled below
+      });
+    }
+
     if (orderIds.length === 0) {
-      setTables(rows.map((t) => ({ ...t })));
+      setTables(rows.map((t) => ({
+        ...t,
+        active_orders: tableOrdersMap.get(t.id) ?? [],
+      })));
       setLoading(false);
       return;
     }
 
-    // Fetch order details for occupied tables
+    // Fetch order details for the current_order_id of each occupied table
     const { data: ordersData } = await supabase
       .from("orders")
       .select("id, created_at, total, subtotal, source, status")
@@ -460,9 +581,17 @@ export default function PosTablesPage() {
       countMap.set(ic.order_id, (countMap.get(ic.order_id) ?? 0) + 1);
     }
 
+    // Back-fill item_count into tableOrdersMap
+    for (const orders of tableOrdersMap.values()) {
+      for (const o of orders) {
+        o.item_count = countMap.get(o.order_id) ?? 0;
+      }
+    }
+
     setTables(
       rows.map((t) => {
-        if (!t.current_order_id) return { ...t };
+        const active_orders = tableOrdersMap.get(t.id) ?? [];
+        if (!t.current_order_id) return { ...t, active_orders };
         const o = orderMap.get(t.current_order_id);
         return {
           ...t,
@@ -470,6 +599,7 @@ export default function PosTablesPage() {
           order_total: Number(o?.total ?? o?.subtotal ?? 0),
           order_item_count: countMap.get(t.current_order_id) ?? 0,
           order_source: o?.source ?? undefined,
+          active_orders,
         };
       })
     );
@@ -515,6 +645,9 @@ export default function PosTablesPage() {
   const handleCardClick = (table: TableWithOrder) => {
     if (table.status === "free") {
       setConfirmTable(table);
+    } else if ((table.active_orders?.length ?? 0) > 1) {
+      // Model A: multiple active orders on this table — let staff pick one
+      setOrdersListTable(table);
     } else {
       navigate(`${posBase}/tables/${table.id}`);
     }
@@ -693,6 +826,17 @@ export default function PosTablesPage() {
           table={statusPickerTable}
           onSelect={(status) => void handleQuickStatus(status)}
           onClose={() => setStatusPickerTable(null)}
+        />
+      )}
+
+      {ordersListTable && (
+        <OrdersListModal
+          table={ordersListTable}
+          onSelect={(orderId) => {
+            setOrdersListTable(null);
+            navigate(`${posBase}/tables/${ordersListTable.id}?order=${orderId}`);
+          }}
+          onClose={() => setOrdersListTable(null)}
         />
       )}
 

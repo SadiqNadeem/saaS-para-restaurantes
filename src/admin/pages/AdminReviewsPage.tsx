@@ -27,7 +27,7 @@ export default function AdminReviewsPage() {
 
   const [reviews, setReviews] = useState<Review[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState<"all" | "pending" | "approved">("all");
+  const [ratingFilter, setRatingFilter] = useState<0 | 1 | 2 | 3 | 4 | 5>(0);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
 
@@ -43,7 +43,7 @@ export default function AdminReviewsPage() {
       .select("id, name, rating, comment, is_approved, created_at, order_id")
       .eq("restaurant_id", restaurantId)
       .order("created_at", { ascending: false })
-      .limit(200);
+      .limit(100);
 
     if (!error) {
       setReviews((data ?? []) as Review[]);
@@ -94,8 +94,7 @@ export default function AdminReviewsPage() {
   };
 
   const filtered = reviews.filter((r) => {
-    if (filter === "approved") return r.is_approved;
-    if (filter === "pending") return !r.is_approved;
+    if (ratingFilter > 0) return r.rating === ratingFilter;
     return true;
   });
 
@@ -121,7 +120,7 @@ export default function AdminReviewsPage() {
           { label: "Total reseñas", value: reviews.length },
           { label: "Publicadas", value: reviews.filter((r) => r.is_approved).length },
           { label: "Pendientes", value: reviews.filter((r) => !r.is_approved).length },
-          { label: "Valoración media", value: reviews.length > 0 ? `${avgRating.toFixed(1)} ` : "—" },
+          { label: "Valoración media", value: reviews.length > 0 ? `${avgRating.toFixed(1)} ★` : "—" },
         ].map((stat) => (
           <div
             key={stat.label}
@@ -143,27 +142,30 @@ export default function AdminReviewsPage() {
         ))}
       </div>
 
-      {/* Filter tabs */}
+      {/* Rating filter tabs */}
       <div style={{ display: "flex", gap: 4, borderBottom: "1px solid var(--admin-card-border)" }}>
-        {(["all", "pending", "approved"] as const).map((f) => {
-          const label = f === "all" ? "Todas" : f === "pending" ? "Pendientes" : "Publicadas";
+        {([0, 5, 4, 3, 2, 1] as const).map((star) => {
+          const label = star === 0 ? "Todas" : `${star}★`;
+          const count = star === 0 ? reviews.length : reviews.filter((r) => r.rating === star).length;
+          const active = ratingFilter === star;
           return (
             <button
-              key={f}
+              key={star}
               type="button"
-              onClick={() => setFilter(f)}
+              onClick={() => setRatingFilter(star)}
               style={{
                 border: "none",
-                borderBottom: filter === f ? "2px solid var(--brand-primary)" : "2px solid transparent",
+                borderBottom: active ? "2px solid var(--brand-primary)" : "2px solid transparent",
                 background: "transparent",
-                padding: "8px 16px",
-                fontWeight: filter === f ? 700 : 500,
-                color: filter === f ? "var(--brand-hover)" : "var(--admin-text-secondary)",
+                padding: "8px 12px",
+                fontWeight: active ? 700 : 500,
+                color: active ? "var(--brand-hover)" : "var(--admin-text-secondary)",
                 cursor: "pointer",
                 fontSize: 14,
               }}
             >
               {label}
+              <span style={{ marginLeft: 4, fontSize: 11, color: "var(--admin-text-muted)" }}>({count})</span>
             </button>
           );
         })}

@@ -38,8 +38,10 @@ export function SupportChatWidget() {
         }
       `}</style>
 
+      {/* OCULTO: botón flotante "Asistente" — reactivar descomentando este bloque
       <button
         type="button"
+        className="ui-elevated-cta"
         onClick={isOpen ? handleClose : handleOpen}
         aria-label={isOpen ? "Cerrar asistente" : "Abrir asistente"}
         style={{
@@ -60,11 +62,12 @@ export function SupportChatWidget() {
           fontSize: 14,
           fontWeight: 700,
           animation: !hasOpened ? "assistant-fab-pulse 2.6s ease-in-out infinite" : "none",
-          transition: "background 0.15s ease",
+          transition: "background 0.18s ease, transform 0.18s ease, box-shadow 0.18s ease",
         }}
       >
         <span>Asistente</span>
       </button>
+      */}
 
       <UnifiedAssistantDrawer isOpen={isOpen} onClose={handleClose} />
     </>
